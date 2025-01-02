@@ -87,10 +87,59 @@ DATABASE_URL = configure_database()
 # Log database configuration
 logger.info(f"Final Database URL: {DATABASE_URL}")
 
-# Configure SQLAlchemy
+# Flask Configuration and Folder Setup
+def configure_app_folders():
+    try:
+        # Define upload and thumbnail folder paths
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # Upload folder configuration
+        upload_folder = os.getenv('UPLOAD_FOLDER', os.path.join(base_dir, 'static', 'uploads'))
+        thumbnail_folder = os.getenv('THUMBNAIL_FOLDER', os.path.join(base_dir, 'static', 'thumbnails'))
+        
+        # Ensure folders exist
+        os.makedirs(upload_folder, exist_ok=True)
+        os.makedirs(thumbnail_folder, exist_ok=True)
+        
+        # Logging for verification
+        logger.info(f"Upload folder: {upload_folder}")
+        logger.info(f"Thumbnail folder: {thumbnail_folder}")
+        
+        return upload_folder, thumbnail_folder
+    
+    except Exception as e:
+        logger.error(f"Error configuring app folders: {e}", exc_info=True)
+        
+        # Fallback to relative paths
+        upload_folder = 'static/uploads'
+        thumbnail_folder = 'static/thumbnails'
+        
+        os.makedirs(upload_folder, exist_ok=True)
+        os.makedirs(thumbnail_folder, exist_ok=True)
+        
+        return upload_folder, thumbnail_folder
+
+# Configure upload and thumbnail folders
+UPLOAD_FOLDER, THUMBNAIL_FOLDER = configure_app_folders()
+
+# Flask Configuration
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['THUMBNAIL_FOLDER'] = THUMBNAIL_FOLDER
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback_secret_key')
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ECHO'] = True  # Enable SQL logging
+app.config['MAX_CONTENT_LENGTH'] = None  # Remove file upload size limit
+
+# Logging configuration details
+logger.info(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
+logger.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
+
+# Initialize extensions
+db = SQLAlchemy(app)
+bcrypt = Bcrypt(app)
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
 
 # Aiven PostgreSQL Configuration
 AIVEN_DB_HOST = os.getenv('AIVEN_DB_HOST', 'localhost')
@@ -108,17 +157,6 @@ logger.info(f"Name: {AIVEN_DB_NAME}")
 logger.info(f"User: {AIVEN_DB_USER}")
 logger.info(f"Password: {'*' * len(AIVEN_DB_PASSWORD) if AIVEN_DB_PASSWORD else 'Not Set'}")
 logger.info(f"SSL Cert Path: {AIVEN_SSL_CERT_PATH}")
-
-# Initialize extensions
-db = SQLAlchemy(app)
-bcrypt = Bcrypt(app)
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
-
-# Create directories
-os.makedirs(os.path.join(app.config['UPLOAD_FOLDER']), exist_ok=True)
-os.makedirs(os.path.join(app.config['THUMBNAIL_FOLDER']), exist_ok=True)
 
 # Database Initialization Function with Robust Error Handling
 def init_db():

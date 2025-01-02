@@ -6,6 +6,7 @@ from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
 import uuid
 import os
+import urllib.parse
 
 # Optional import for OpenCV
 try:
@@ -21,7 +22,13 @@ app = Flask(__name__)
 
 # Production Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'fallback_secret_key')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///movies.db')
+
+# PostgreSQL Connection Handling
+database_url = os.environ.get('DATABASE_URL', 'sqlite:///movies.db')
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql://', 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['THUMBNAIL_FOLDER'] = 'static/thumbnails'

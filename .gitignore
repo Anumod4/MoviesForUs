@@ -1,44 +1,19 @@
 # Virtual Environment
 venv/
-*.pyc
-__pycache__/
 
-# Instance Folder
-instance/movies.db
-
-# Environment Files
+# Environment files
 .env
 *.env
+.env.local
+.env.development
+.env.test
+.env.production
 
-# Uploads and Thumbnails
-static/uploads/*
-static/thumbnails/*
-!static/uploads/.gitkeep
-!static/thumbnails/.gitkeep
-
-# Operating System Files
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Backup Files
-*.bak
-
-# IDE Settings
-.vscode/
-.idea/
-
-# Database
-*.db
-
-# Compiled Python
-*.pyc
-*.pyo
-*.pyd
-
-# Distribution / packaging
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
 .Python
 build/
 develop-eggs/
@@ -55,4 +30,28 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
+
+# Logs
+*.log
+app.log
+
+# Thumbnails and uploads
+static/uploads/
+static/thumbnails/
+!static/uploads/.gitkeep
+!static/thumbnails/.gitkeep
+
+# IDE and OS specific files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+
+# Backup Files
+*.bak
+
+# Database
+instance/movies.db
+*.db

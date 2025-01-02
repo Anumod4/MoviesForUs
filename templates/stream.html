@@ -15,8 +15,23 @@
                     data-setup='{"fluid": true, "playbackRates": [0.5, 1, 1.5, 2]}'
                 >
                     <source src="{{ url_for('stream', filename=filename) }}" type="video/mp4">
-                    Your browser does not support the video tag.
+                    <p class="vjs-no-js">
+                        To view this video please enable JavaScript, and consider upgrading to a web browser
+                        that supports HTML5 video.
+                    </p>
                 </video>
+                
+                <!-- Error Overlay -->
+                <div id="videoErrorOverlay" class="video-error-overlay d-none">
+                    <div class="error-content">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <h4>Video Loading Error</h4>
+                        <p id="errorMessage">Unable to load video. Please try again later.</p>
+                        <button id="retryButton" class="btn btn-primary">
+                            <i class="fas fa-redo"></i> Retry
+                        </button>
+                    </div>
+                </div>
                 
                 <!-- Streaming Information Overlay -->
                 <div id="streamInfoOverlay" class="stream-info-overlay">
@@ -87,14 +102,50 @@
 .stream-info-item span {
     font-size: 0.8rem;
 }
+
+.video-error-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    text-align: center;
+    z-index: 1000;
+}
+
+.error-content {
+    max-width: 400px;
+    padding: 20px;
+    background-color: rgba(0, 0, 0, 0.8);
+    border-radius: 10px;
+}
+
+.error-content i {
+    font-size: 4rem;
+    color: #ff4136;
+    margin-bottom: 15px;
+}
+
+.error-content h4 {
+    margin-bottom: 15px;
+}
+
+.error-content p {
+    margin-bottom: 20px;
+}
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Initialize Video.js player with advanced options
     const player = videojs('videoPlayer', {
         html5: {
             nativeTextTracks: false
@@ -110,17 +161,79 @@ document.addEventListener('DOMContentLoaded', function() {
                 'fullscreenToggle'
             ]
         },
-        // Enable advanced streaming features
         liveui: true,
         preload: 'auto',
         autoplay: false,
         playbackRates: [0.5, 1, 1.5, 2]
     });
 
+    const videoErrorOverlay = document.getElementById('videoErrorOverlay');
+    const errorMessage = document.getElementById('errorMessage');
+    const retryButton = document.getElementById('retryButton');
+
     const streamInfoOverlay = document.getElementById('streamInfoOverlay');
     const networkStatusEl = document.getElementById('networkStatus');
     const bufferingStatusEl = document.getElementById('bufferingStatus');
     const connectionSpeedEl = document.getElementById('connectionSpeed');
+
+    // Error handling
+    player.on('error', function(error) {
+        console.error('Video Player Error:', error);
+        
+        let errorDetails = '';
+        switch(error.target.error.code) {
+            case MediaError.MEDIA_ERR_ABORTED:
+                errorDetails = 'Fetching process aborted by user.';
+                break;
+            case MediaError.MEDIA_ERR_NETWORK:
+                errorDetails = 'Network error - check your connection.';
+                break;
+            case MediaError.MEDIA_ERR_DECODE:
+                errorDetails = 'Decoding error - the video is corrupt.';
+                break;
+            case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+                errorDetails = 'Video format not supported.';
+                break;
+            default:
+                errorDetails = 'Unknown video loading error.';
+        }
+
+        errorMessage.textContent = errorDetails;
+        videoErrorOverlay.classList.remove('d-none');
+    });
+
+    // Retry mechanism
+    retryButton.addEventListener('click', function() {
+        videoErrorOverlay.classList.add('d-none');
+        player.src(player.currentSrc());
+        player.load();
+        player.play();
+    });
+
+    // Network status tracking
+    function checkNetworkStatus() {
+        if (!navigator.onLine) {
+            errorMessage.textContent = 'No internet connection.';
+            videoErrorOverlay.classList.remove('d-none');
+        }
+    }
+
+    window.addEventListener('online', function() {
+        videoErrorOverlay.classList.add('d-none');
+        player.load();
+    });
+
+    window.addEventListener('offline', checkNetworkStatus);
+
+    // Validate video source before playing
+    player.on('loadstart', function() {
+        axios.head("{{ url_for('stream', filename=filename) }}")
+            .catch(function(error) {
+                console.error('Video source validation failed:', error);
+                errorMessage.textContent = 'Unable to validate video source.';
+                videoErrorOverlay.classList.remove('d-none');
+            });
+    });
 
     // Network Information
     function updateNetworkInfo() {
@@ -157,13 +270,6 @@ document.addEventListener('DOMContentLoaded', function() {
     player.on('progress', function() {
         const buffered = player.bufferedPercent() * 100;
         bufferingStatusEl.querySelector('span').textContent = `Buffering: ${buffered.toFixed(0)}%`;
-    });
-
-    player.on('error', function(error) {
-        console.error('Video Error:', error);
-        networkStatusEl.querySelector('span').textContent = 'Network: Error';
-        bufferingStatusEl.querySelector('span').textContent = 'Buffering: Failed';
-        streamInfoOverlay.style.display = 'block';
     });
 
     // Initial network info

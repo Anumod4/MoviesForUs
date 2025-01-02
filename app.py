@@ -15,6 +15,7 @@ from werkzeug.utils import secure_filename
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import inspect, create_engine, text
 import re
+import mimetypes
 
 # Load environment variables
 load_dotenv()
@@ -273,6 +274,129 @@ def load_user(user_id):
         print(f"Error loading user {user_id}: {e}")
         return None
 
+def generate_thumbnail(video_path, output_path, size=(320, 240)):
+    """
+    Generate a thumbnail for a video with improved error handling
+    
+    Args:
+        video_path (str): Path to the source video
+        output_path (str): Path to save the thumbnail
+        size (tuple): Thumbnail size, default (320, 240)
+    
+    Returns:
+        str: Thumbnail filename or None if generation fails
+    """
+    try:
+        import cv2
+        import numpy as np
+        
+        # Validate input file
+        if not os.path.exists(video_path):
+            logging.error(f"Video file not found: {video_path}")
+            return None
+        
+        # Open video capture
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            logging.error(f"Could not open video file: {video_path}")
+            return None
+        
+        # Read first frame
+        ret, frame = cap.read()
+        cap.release()
+        
+        if not ret:
+            logging.error(f"Could not read first frame from: {video_path}")
+            return None
+        
+        # Resize frame
+        resized_frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
+        
+        # Generate unique filename
+        thumbnail_filename = f"thumb_{uuid.uuid4().hex[:8]}.jpg"
+        thumbnail_full_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
+        
+        # Ensure thumbnail directory exists
+        os.makedirs(os.path.dirname(thumbnail_full_path), exist_ok=True)
+        
+        # Save thumbnail
+        cv2.imwrite(thumbnail_full_path, resized_frame)
+        
+        return thumbnail_filename
+    
+    except ImportError:
+        logging.warning("OpenCV not installed. Skipping thumbnail generation.")
+        return None
+    except Exception as e:
+        logging.error(f"Unexpected error generating thumbnail: {e}")
+        return None
+
+@app.route('/stream/<filename>')
+def stream(filename):
+    """
+    Enhanced video streaming with multiple error handling and format support
+    
+    Args:
+        filename (str): Name of the video file to stream
+    
+    Returns:
+        Flask Response or error page
+    """
+    try:
+        # Secure filename and construct full path
+        safe_filename = secure_filename(filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
+        
+        # Validate file existence and access
+        if not os.path.exists(file_path):
+            logging.error(f"Requested file not found: {file_path}")
+            flash('The requested video could not be found.', 'danger')
+            return redirect(url_for('index'))
+        
+        # Validate file size and type
+        file_size = os.path.getsize(file_path)
+        if file_size == 0:
+            logging.error(f"Empty file detected: {file_path}")
+            flash('The video file is empty or corrupted.', 'danger')
+            return redirect(url_for('index'))
+        
+        # Determine MIME type
+        mime_type = mimetypes.guess_type(file_path)[0]
+        supported_video_types = ['video/mp4', 'video/webm', 'video/ogg']
+        
+        if not mime_type or mime_type not in supported_video_types:
+            logging.warning(f"Unsupported video type: {mime_type}")
+            flash('Unsupported video format.', 'warning')
+            return redirect(url_for('index'))
+        
+        # Streaming logic with range support
+        def generate():
+            with open(file_path, 'rb') as video_file:
+                data = video_file.read(app.config.get('STREAM_CHUNK_SIZE', 1024 * 1024 * 20))
+                while data:
+                    yield data
+                    data = video_file.read(app.config.get('STREAM_CHUNK_SIZE', 1024 * 1024 * 20))
+        
+        # Stream response
+        return Response(
+            generate(), 
+            mimetype=mime_type,
+            content_type=mime_type,
+            headers={
+                'Content-Disposition': f'inline; filename="{safe_filename}"',
+                'Content-Length': str(file_size)
+            }
+        )
+    
+    except PermissionError:
+        logging.error(f"Permission denied accessing file: {file_path}")
+        flash('Permission denied accessing the video.', 'danger')
+        return redirect(url_for('index'))
+    except Exception as e:
+        logging.error(f"Unexpected streaming error: {e}")
+        flash('An unexpected error occurred while streaming the video.', 'danger')
+        return redirect(url_for('index'))
+
 # Registration Route with Comprehensive Error Handling
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -401,151 +525,6 @@ def login():
             return redirect(url_for('login'))
     
     return render_template('login.html')
-
-def generate_thumbnail(video_path, thumbnail_path):
-    """Generate thumbnail for video with fallback to PIL if cv2 is not available."""
-    if CV2_AVAILABLE:
-        # OpenCV method
-        cap = cv2.VideoCapture(video_path)
-        ret, frame = cap.read()
-        if ret:
-            # Resize thumbnail while maintaining aspect ratio
-            height, width = frame.shape[:2]
-            aspect_ratio = width / height
-            new_width = 400
-            new_height = int(new_width / aspect_ratio)
-            resized_frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
-            cv2.imwrite(thumbnail_path, resized_frame)
-            cap.release()
-            return True
-    
-    # Fallback PIL method (less accurate)
-    try:
-        from PIL import Image
-        img = Image.open(video_path)
-        img.thumbnail((400, 400)) # Resize to 400x400
-        img.save(thumbnail_path)
-        return True
-    except Exception as e:
-        print(f"Thumbnail generation failed: {e}")
-        return False
-
-def generate_video_cache_key(filename):
-    """
-    Generate a unique cache key for the video
-    """
-    return hashlib.md5(filename.encode('utf-8')).hexdigest()
-
-# Add streaming headers for better performance
-def add_streaming_headers(response):
-    """
-    Add headers to improve video streaming performance
-    """
-    response.headers['Accept-Ranges'] = 'bytes'
-    response.headers['Cache-Control'] = 'public, max-age=86400'  # 24-hour caching
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    return response
-
-# Modify stream route to use streaming headers and caching
-@app.route('/stream/<filename>')
-@login_required
-def stream(filename):
-    """
-    Efficient video streaming route with 20MB chunks and caching
-    """
-    try:
-        # Secure the filename
-        safe_filename = secure_filename(filename)
-        
-        # Construct full path to the video file
-        video_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
-        
-        # Check if file exists
-        if not os.path.exists(video_path):
-            return "File not found", 404
-        
-        # Get file size
-        file_size = os.path.getsize(video_path)
-        
-        # Use configured chunk size
-        chunk_size = app.config['STREAM_CHUNK_SIZE']
-        
-        # Generate cache key
-        cache_key = generate_video_cache_key(safe_filename)
-        
-        # Check for cached video metadata
-        cached_metadata = cache.get(f"{cache_key}_metadata")
-        if not cached_metadata:
-            # Cache video metadata if not exists
-            cached_metadata = {
-                'filename': safe_filename,
-                'size': file_size,
-                'mime_type': 'video/mp4'
-            }
-            cache.set(f"{cache_key}_metadata", cached_metadata)
-        
-        # Handle range requests for partial content
-        range_header = request.headers.get('Range', None)
-        
-        if range_header:
-            # Parse range header
-            byte1, byte2 = 0, None
-            match = re.search(r'(\d+)-(\d*)', range_header)
-            groups = match.groups()
-            
-            if groups[0]:
-                byte1 = int(groups[0])
-            if groups[1]:
-                byte2 = int(groups[1])
-            
-            # Adjust byte2 if not specified
-            if byte2 is not None:
-                length = byte2 + 1 - byte1
-            else:
-                length = file_size - byte1
-            
-            # Cached chunk retrieval
-            chunk_cache_key = f"{cache_key}_chunk_{byte1}_{length}"
-            cached_chunk = cache.get(chunk_cache_key)
-            
-            if not cached_chunk:
-                # Read and cache chunk if not in cache
-                with open(video_path, 'rb') as f:
-                    f.seek(byte1)
-                    cached_chunk = f.read(length)
-                    cache.set(chunk_cache_key, cached_chunk, timeout=3600)  # 1-hour cache
-            
-            # Prepare response with partial content
-            rv = Response(cached_chunk, 
-                          206,  # Partial Content status
-                          mimetype='video/mp4', 
-                          content_type='video/mp4', 
-                          direct_passthrough=True)
-            
-            rv.headers.add('Content-Range', f'bytes {byte1}-{byte1 + length - 1}/{file_size}')
-            rv.headers.add('Accept-Ranges', 'bytes')
-            rv.headers.add('Content-Length', str(length))
-            
-            return add_streaming_headers(rv)
-        
-        # If no range specified, stream entire file
-        def generate():
-            with open(video_path, 'rb') as f:
-                data = f.read(chunk_size)
-                while data:
-                    yield data
-                    data = f.read(chunk_size)
-        
-        rv = Response(generate(), 
-                      mimetype='video/mp4', 
-                      content_type='video/mp4',
-                      direct_passthrough=True)
-        
-        return add_streaming_headers(rv)
-    
-    except Exception as e:
-        print(f"Error streaming video: {e}")
-        return "Error streaming video", 500
 
 @app.route('/play/<int:movie_id>')
 @login_required

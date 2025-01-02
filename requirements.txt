@@ -7,15 +7,21 @@ python-dotenv==1.0.0
 psycopg2-binary==2.9.6
 Pillow==9.5.0
 gunicorn==20.1.0
-opencv-python-headless==4.7.0.72
 aiven-client==2.16.0  # Aiven management client
 flask-caching==2.1.0
 
-# Video Conversion Dependencies
+# Video Processing Dependencies
 ffmpeg-python==0.2.0
 python-ffmpeg==1.0.14
+python-magic==0.4.27
+opencv-python-headless==4.7.0.72
 
-# Note: Requires system-level FFmpeg installation
-# macOS: brew install ffmpeg
-# Ubuntu/Debian: sudo apt-get install ffmpeg
-# Windows: Download from https://ffmpeg.org/download.html
+# Note: Requires system-level dependencies
+# macOS: 
+#   brew install ffmpeg
+#   brew install libmagic
+# Ubuntu/Debian: 
+#   sudo apt-get install ffmpeg libmagic-dev
+# Windows: 
+#   Download FFmpeg from https://ffmpeg.org/download.html
+#   Install python-magic-bin

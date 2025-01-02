@@ -19,6 +19,7 @@ import mimetypes
 import ffmpeg
 import tempfile
 import subprocess
+import json
 
 # Load environment variables
 load_dotenv()
@@ -437,43 +438,125 @@ def is_convertible_video(filename):
     file_ext = os.path.splitext(filename)[1].lower()
     return file_ext in convertible_extensions
 
+def validate_video_file(file_path):
+    """
+    Comprehensive video file validation
+    
+    Args:
+        file_path (str): Path to the video file
+    
+    Returns:
+        dict: Validation results with detailed information
+    """
+    try:
+        import magic  # python-magic for MIME type detection
+        
+        # Basic file checks
+        if not os.path.exists(file_path):
+            return {
+                'valid': False, 
+                'reason': 'File does not exist',
+                'details': f'Path: {file_path}'
+            }
+        
+        file_size = os.path.getsize(file_path)
+        if file_size == 0:
+            return {
+                'valid': False, 
+                'reason': 'Empty file',
+                'details': f'Size: {file_size} bytes'
+            }
+        
+        # Detect MIME type
+        mime_type = magic.from_file(file_path, mime=True)
+        
+        # Supported video MIME types
+        supported_mime_types = [
+            'video/mp4', 'video/x-matroska', 'video/avi', 
+            'video/x-msvideo', 'video/quicktime', 'video/webm',
+            'video/x-ms-wmv', 'video/mpeg'
+        ]
+        
+        if mime_type not in supported_mime_types:
+            return {
+                'valid': False, 
+                'reason': 'Unsupported video format',
+                'details': f'Detected MIME: {mime_type}'
+            }
+        
+        # Optional: Basic video metadata extraction
+        try:
+            import cv2
+            cap = cv2.VideoCapture(file_path)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.release()
+        except Exception as metadata_error:
+            width, height, fps, total_frames = None, None, None, None
+            logging.warning(f"Could not extract video metadata: {metadata_error}")
+        
+        return {
+            'valid': True,
+            'mime_type': mime_type,
+            'size': file_size,
+            'metadata': {
+                'width': width,
+                'height': height,
+                'fps': fps,
+                'total_frames': total_frames
+            }
+        }
+    
+    except ImportError as import_error:
+        logging.error(f"Missing dependencies for video validation: {import_error}")
+        return {
+            'valid': False,
+            'reason': 'Missing validation dependencies',
+            'details': str(import_error)
+        }
+    except Exception as e:
+        logging.error(f"Unexpected error validating video: {e}")
+        return {
+            'valid': False,
+            'reason': 'Unexpected validation error',
+            'details': str(e)
+        }
+
 @app.route('/stream/<filename>')
 def stream(filename):
     """
-    Enhanced video streaming with MKV and multiple format support
+    Enhanced video streaming with comprehensive error handling and logging
     """
     try:
         # Secure filename and construct full path
         safe_filename = secure_filename(filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
         
-        # Validate file existence and access
-        if not os.path.exists(file_path):
-            logging.error(f"Requested file not found: {file_path}")
-            flash('The requested video could not be found.', 'danger')
+        # Validate video file
+        video_validation = validate_video_file(file_path)
+        
+        if not video_validation['valid']:
+            logging.error(f"Video validation failed: {video_validation}")
+            flash(f"Video processing error: {video_validation.get('reason', 'Unknown error')}", 'danger')
             return redirect(url_for('index'))
         
-        # Validate file size
-        file_size = os.path.getsize(file_path)
-        if file_size == 0:
-            logging.error(f"Empty file detected: {file_path}")
-            flash('The video file is empty or corrupted.', 'danger')
-            return redirect(url_for('index'))
-        
-        # Check if conversion is needed
+        # Determine conversion strategy
+        mime_type = video_validation.get('mime_type', 'video/mp4')
         converted_path = file_path
-        if is_convertible_video(safe_filename) and not safe_filename.lower().endswith('.mp4'):
+        
+        # Convert if not MP4
+        if mime_type != 'video/mp4':
             try:
                 converted_path = convert_video_to_mp4(file_path)
+                logging.info(f"Converted {safe_filename} from {mime_type} to MP4")
             except Exception as conv_error:
                 logging.error(f"Video conversion failed: {conv_error}")
                 flash('Could not convert video format.', 'danger')
                 return redirect(url_for('index'))
         
-        # Determine MIME type
-        mime_type = 'video/mp4'
-        
-        # Streaming logic with range support
+        # Streaming logic
         def generate():
             with open(converted_path, 'rb') as video_file:
                 data = video_file.read(app.config.get('STREAM_CHUNK_SIZE', 1024 * 1024 * 20))
@@ -484,11 +567,13 @@ def stream(filename):
         # Stream response
         response = Response(
             generate(), 
-            mimetype=mime_type,
-            content_type=mime_type,
+            mimetype='video/mp4',
+            content_type='video/mp4',
             headers={
                 'Content-Disposition': f'inline; filename="{safe_filename}"',
-                'Content-Length': str(os.path.getsize(converted_path))
+                'Content-Length': str(os.path.getsize(converted_path)),
+                'X-Video-Original-Type': mime_type,
+                'X-Video-Metadata': json.dumps(video_validation.get('metadata', {}))
             }
         )
         
@@ -499,7 +584,7 @@ def stream(filename):
         return response
     
     except Exception as e:
-        logging.error(f"Unexpected streaming error: {e}")
+        logging.error(f"Unexpected streaming error: {e}", exc_info=True)
         flash('An unexpected error occurred while streaming the video.', 'danger')
         return redirect(url_for('index'))
 

@@ -123,8 +123,17 @@ login_manager.login_view = 'login'
 def safe_init_db():
     try:
         with app.app_context():
+            # Drop all existing tables first to ensure clean state
+            db.drop_all()
+            
+            # Create all tables
             db.create_all()
+            
             print("Database tables created successfully.")
+            
+            # Optional: Add a check to verify table creation
+            inspector = inspect(db.engine)
+            print("Created tables:", inspector.get_table_names())
     except Exception as e:
         print(f"Error initializing database: {e}")
         traceback.print_exc()

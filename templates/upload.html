@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card glassmorphic">
+                <div class="card-header">
+                    <h2 class="text-center mb-4">Upload Movie to MoviesForUs</h2>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="title" class="form-label">Movie Title</label>
+                            <input type="text" class="form-control" id="title" name="title" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="language" class="form-label">Language</label>
+                            <select class="form-select" id="language" name="language" required>
+                                {% for lang in languages %}
+                                    <option value="{{ lang }}">{{ lang }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="movie" class="form-label">Movie File</label>
+                            <input 
+                                type="file" 
+                                class="form-control" 
+                                id="movie" 
+                                name="movie" 
+                                accept="video/*" 
+                                required
+                            >
+                            <div class="form-text">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Supports all video formats. No file size limit.
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="thumbnail" class="form-label">Custom Thumbnail (Optional)</label>
+                            <input 
+                                type="file" 
+                                class="form-control" 
+                                id="thumbnail" 
+                                name="thumbnail" 
+                                accept="image/*"
+                            >
+                            <div class="form-text">
+                                <i class="fas fa-image me-2"></i>
+                                Upload a custom thumbnail for your movie
+                            </div>
+                        </div>
+                        
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-upload me-2"></i>Upload Movie
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+.form-control, .form-select {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+    border-color: var(--accent-color);
+}
+
+.form-text {
+    color: var(--text-secondary);
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form');
+    const movieInput = document.getElementById('movie');
+    const thumbnailInput = document.getElementById('thumbnail');
+    
+    // Optional: Add file preview and validation
+    function previewFile(input, previewType) {
+        const file = input.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                if (previewType === 'video') {
+                    // Optional: Video preview logic
+                } else if (previewType === 'image') {
+                    // Optional: Image preview logic
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+    }
+    
+    movieInput.addEventListener('change', function() {
+        previewFile(this, 'video');
+    });
+    
+    thumbnailInput.addEventListener('change', function() {
+        previewFile(this, 'image');
+    });
+});
+</script>
+{% endblock %}

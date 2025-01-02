@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="text-center mb-4">Edit Movie in MoviesForUs</h2>
+                </div>
+                <div class="card-body">
+                    <form method="POST" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label for="title" class="form-label">
+                                <i class="fas fa-heading text-primary me-2"></i>Movie Title
+                            </label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="title" 
+                                   name="title" 
+                                   value="{{ movie.title }}" 
+                                   required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="language" class="form-label">
+                                <i class="fas fa-language text-primary me-2"></i>Movie Language
+                            </label>
+                            <select class="form-select" id="language" name="language" required>
+                                {% for lang in languages %}
+                                    <option value="{{ lang }}" 
+                                            {% if movie.language == lang %}selected{% endif %}>
+                                        {{ lang }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="thumbnail" class="form-label">
+                                <i class="fas fa-image text-primary me-2"></i>Update Thumbnail (Optional)
+                            </label>
+                            <div class="custom-file-input">
+                                <input type="file" 
+                                       class="form-control" 
+                                       id="thumbnail" 
+                                       name="thumbnail" 
+                                       accept="image/*">
+                                <div class="custom-file-label">
+                                    <i class="fas fa-cloud-upload-alt me-2"></i>
+                                    Upload new thumbnail
+                                </div>
+                            </div>
+                            <div id="thumbnail-preview" class="mt-3">
+                                {% if movie.thumbnail %}
+                                    <img src="{{ url_for('static', filename='thumbnails/' + movie.thumbnail) }}" 
+                                         alt="Current Thumbnail" 
+                                         class="img-fluid rounded" 
+                                         style="max-height: 200px;">
+                                    <small class="d-block text-muted mt-2">Current Thumbnail</small>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between">
+                            <button type="submit" class="btn btn-primary flex-grow-1 me-2">
+                                <i class="fas fa-save me-2"></i>Save Changes
+                            </button>
+                            <button type="button" 
+                                    class="btn btn-danger flex-grow-1" 
+                                    data-bs-toggle="modal" 
+                                    data-bs-target="#deleteMovieModal">
+                                <i class="fas fa-trash me-2"></i>Delete Movie
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteMovieModal" tabindex="-1" aria-labelledby="deleteMovieModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteMovieModalLabel">
+                    <i class="fas fa-exclamation-triangle text-warning me-2"></i>Confirm Delete
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                Are you sure you want to delete "{{ movie.title }}"? 
+                This action cannot be undone.
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i>Cancel
+                </button>
+                <form action="{{ url_for('delete_movie', movie_id=movie.id) }}" method="POST" class="d-inline">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash me-2"></i>Delete
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const thumbnailInput = document.getElementById('thumbnail');
+    const thumbnailPreview = document.getElementById('thumbnail-preview');
+
+    thumbnailInput.addEventListener('change', function() {
+        thumbnailPreview.innerHTML = ''; // Clear previous preview
+
+        if (this.files && this.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = document.createElement('img');
+                img.src = e.target.result;
+                img.classList.add('img-fluid', 'rounded');
+                img.style.maxHeight = '200px';
+                
+                const label = document.createElement('small');
+                label.classList.add('d-block', 'text-muted', 'mt-2');
+                label.textContent = 'New Thumbnail Preview';
+                
+                thumbnailPreview.appendChild(img);
+                thumbnailPreview.appendChild(label);
+            }
+            reader.readAsDataURL(this.files[0]);
+        }
+    });
+});
+</script>
+{% endblock %}
+
+{% block styles %}
+<style>
+.custom-file-input .custom-file-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+</style>
+{% endblock %}

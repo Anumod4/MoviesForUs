@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col-12">
+            <a href="{{ url_for('index') }}" class="btn btn-outline-primary position-absolute top-0 start-0 m-3">
+                <i class="fas fa-arrow-left me-2"></i>Back to Home
+            </a>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-12">
+            <div class="video-container glassmorphic p-3">
+                <video 
+                    id="moviePlayer" 
+                    controls 
+                    class="w-100" 
+                    style="max-height: 80vh;"
+                >
+                    <source src="{{ url_for('stream', filename=filename) }}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+.video-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#moviePlayer {
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    border-radius: 12px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const player = document.getElementById('moviePlayer');
+    const navbar = document.getElementById('main-navbar');
+    
+    // Hide navbar when page loads
+    if (navbar) {
+        navbar.classList.add('hidden');
+    }
+    
+    player.focus();
+
+    // Optional: Restore navbar when navigating away
+    window.addEventListener('beforeunload', function() {
+        if (navbar) {
+            navbar.classList.remove('hidden');
+        }
+    });
+});
+</script>
+{% endblock %}

@@ -65,7 +65,8 @@ DATABASE_URL = os.getenv('DATABASE_URL',
 if AIVEN_SSL_CERT_PATH and os.path.exists(AIVEN_SSL_CERT_PATH):
     DATABASE_URL += '?sslmode=verify-full&sslcert=' + AIVEN_SSL_CERT_PATH
 else:
-    DATABASE_URL += '?sslmode=require'
+    # Simplified SSL mode
+    DATABASE_URL = DATABASE_URL.split('?')[0] + '?sslmode=require'
 
 # Fallback to SQLite if Aiven configuration is incomplete
 try:
@@ -78,6 +79,9 @@ try:
 except Exception as e:
     logger.error(f"Error parsing database configuration: {e}. Falling back to SQLite.")
     DATABASE_URL = 'sqlite:///movies.db'
+
+# Log the final database URL for debugging
+logger.info(f"Final Database URL: {DATABASE_URL}")
 
 # Flask Configuration
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback_secret_key')

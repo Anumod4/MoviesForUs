@@ -1,73 +1,169 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="row justify-content-center">
-        <div class="col-md-10">
-            <div class="video-container">
-                <video id="videoPlayer" controls preload="metadata" class="w-100">
+<div class="container-fluid video-stream-container">
+    <div class="row">
+        <div class="col-12 position-relative">
+            <div class="video-wrapper">
+                <video 
+                    id="videoPlayer" 
+                    class="video-js vjs-default-skin" 
+                    controls 
+                    preload="auto" 
+                    width="100%" 
+                    height="auto"
+                >
                     <source src="{{ url_for('stream', filename=filename) }}" type="video/mp4">
                     Your browser does not support the video tag.
                 </video>
+                
+                <!-- Streaming Information Overlay -->
+                <div id="streamInfoOverlay" class="stream-info-overlay">
+                    <div class="stream-info-content">
+                        <div id="networkStatus" class="stream-info-item">
+                            <i class="fas fa-signal"></i>
+                            <span>Network: Checking...</span>
+                        </div>
+                        <div id="bufferingStatus" class="stream-info-item">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            <span>Buffering: 0%</span>
+                        </div>
+                        <div id="connectionSpeed" class="stream-info-item">
+                            <i class="fas fa-tachometer-alt"></i>
+                            <span>Speed: Calculating...</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 </div>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const videoPlayer = document.getElementById('videoPlayer');
-
-    // Improve video loading and streaming
-    videoPlayer.addEventListener('loadstart', function() {
-        console.log('Video loading started');
-    });
-
-    videoPlayer.addEventListener('canplay', function() {
-        console.log('Video can start playing');
-    });
-
-    // Optional: Add error handling
-    videoPlayer.addEventListener('error', function(e) {
-        console.error('Video loading error:', e);
-        alert('Error loading video. Please try again.');
-    });
-});
-</script>
 {% endblock %}
 
 {% block styles %}
-{{ super() }}
+<link href="https://vjs.zencdn.net/7.20.3/video-js.min.css" rel="stylesheet" />
 <style>
-.video-container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
+.video-stream-container {
+    position: relative;
+    background-color: #000;
 }
 
-#videoPlayer {
-    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-    border-radius: 12px;
+.video-wrapper {
+    position: relative;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.stream-info-overlay {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background-color: rgba(0, 0, 0, 0.5);
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    z-index: 1000;
+    display: none;
+}
+
+.stream-info-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.stream-info-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 5px;
+}
+
+.stream-info-item i {
+    margin-right: 10px;
+    width: 20px;
+    text-align: center;
+}
+
+.stream-info-item span {
+    font-size: 0.8rem;
 }
 </style>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const navbar = document.getElementById('main-navbar');
-    
-    // Hide navbar when page loads
-    if (navbar) {
-        navbar.classList.add('hidden');
-    }
-    
-    // Optional: Restore navbar when navigating away
-    window.addEventListener('beforeunload', function() {
-        if (navbar) {
-            navbar.classList.remove('hidden');
+    // Initialize Video.js player
+    const player = videojs('videoPlayer', {
+        controlBar: {
+            children: [
+                'playToggle',
+                'volumePanel',
+                'currentTimeDisplay',
+                'timeDivider',
+                'durationDisplay',
+                'progressControl',
+                'fullscreenToggle'
+            ]
         }
     });
+
+    const streamInfoOverlay = document.getElementById('streamInfoOverlay');
+    const networkStatusEl = document.getElementById('networkStatus');
+    const bufferingStatusEl = document.getElementById('bufferingStatus');
+    const connectionSpeedEl = document.getElementById('connectionSpeed');
+
+    // Network Information
+    function updateNetworkInfo() {
+        const connection = navigator.connection || 
+                           navigator.mozConnection || 
+                           navigator.webkitConnection;
+        
+        if (connection) {
+            const networkType = connection.effectiveType;
+            const downlinkSpeed = connection.downlink;
+            
+            networkStatusEl.querySelector('span').textContent = `Network: ${networkType}`;
+            connectionSpeedEl.querySelector('span').textContent = `Speed: ${downlinkSpeed} Mbps`;
+        }
+    }
+
+    // Streaming Events
+    player.on('loadstart', function() {
+        streamInfoOverlay.style.display = 'block';
+        networkStatusEl.querySelector('span').textContent = 'Network: Connecting...';
+    });
+
+    player.on('waiting', function() {
+        bufferingStatusEl.querySelector('span').textContent = 'Buffering: Loading...';
+    });
+
+    player.on('canplay', function() {
+        bufferingStatusEl.querySelector('span').textContent = 'Buffering: Ready';
+        setTimeout(() => {
+            streamInfoOverlay.style.display = 'none';
+        }, 2000);
+    });
+
+    player.on('progress', function() {
+        const buffered = player.bufferedPercent() * 100;
+        bufferingStatusEl.querySelector('span').textContent = `Buffering: ${buffered.toFixed(0)}%`;
+    });
+
+    player.on('error', function(error) {
+        console.error('Video Error:', error);
+        networkStatusEl.querySelector('span').textContent = 'Network: Error';
+        bufferingStatusEl.querySelector('span').textContent = 'Buffering: Failed';
+        streamInfoOverlay.style.display = 'block';
+    });
+
+    // Initial network info
+    updateNetworkInfo();
+
+    // Update network info periodically
+    if (navigator.connection) {
+        navigator.connection.addEventListener('change', updateNetworkInfo);
+    }
 });
 </script>
 {% endblock %}

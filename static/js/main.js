@@ -136,6 +136,63 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    // Video Performance Tracking
+    const videoElementsPerformance = document.querySelectorAll('video');
+    
+    videoElementsPerformance.forEach(video => {
+        // Performance tracking variables
+        let startLoadTime = 0;
+        let endLoadTime = 0;
+        
+        // Load start tracking
+        video.addEventListener('loadstart', function() {
+            startLoadTime = performance.now();
+            console.log('Video loading started');
+        });
+        
+        // Buffering tracking
+        video.addEventListener('waiting', function() {
+            console.log('Video buffering started');
+        });
+        
+        // Playback ready tracking
+        video.addEventListener('canplay', function() {
+            endLoadTime = performance.now();
+            const loadDuration = endLoadTime - startLoadTime;
+            
+            console.log(`Video load time: ${loadDuration.toFixed(2)}ms`);
+            
+            // Network information logging
+            const connection = navigator.connection || 
+                               navigator.mozConnection || 
+                               navigator.webkitConnection;
+            
+            if (connection) {
+                console.log('Network Type:', connection.effectiveType);
+                console.log('Downlink Speed:', connection.downlink, 'Mbps');
+            }
+        });
+        
+        // Detailed buffering progress
+        video.addEventListener('progress', function() {
+            const buffered = video.buffered;
+            if (buffered.length > 0) {
+                const bufferedEnd = buffered.end(buffered.length - 1);
+                const duration = video.duration;
+                const bufferedPercentage = (bufferedEnd / duration * 100).toFixed(2);
+                
+                console.log(`Buffered: ${bufferedPercentage}%`);
+            }
+        });
+        
+        // Error tracking
+        video.addEventListener('error', function(e) {
+            console.error('Video Error:', e);
+            console.error('Error Code:', video.error.code);
+            console.error('Error Message:', video.error.message);
+        });
+    });
+
     // Optional: Bandwidth and performance tracking
     if ('performance' in window) {
         window.addEventListener('load', function() {

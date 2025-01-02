@@ -443,11 +443,22 @@ def generate_thumbnail(video_path, thumbnail_path):
         print(f"Thumbnail generation failed: {e}")
         return False
 
+# Add streaming headers for better performance
+def add_streaming_headers(response):
+    """
+    Add headers to improve video streaming performance
+    """
+    response.headers['Accept-Ranges'] = 'bytes'
+    response.headers['Cache-Control'] = 'public, max-age=86400'  # 24-hour caching
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+# Modify stream route to use streaming headers
 @app.route('/stream/<filename>')
 @login_required
 def stream(filename):
     """
-    Efficient video streaming route with support for range requests
+    Efficient video streaming route with performance optimization
     """
     try:
         # Construct full path to the video file
@@ -500,7 +511,7 @@ def stream(filename):
             rv.headers.add('Accept-Ranges', 'bytes')
             rv.headers.add('Content-Length', str(length))
             
-            return rv
+            return add_streaming_headers(rv)
         
         # If no range specified, stream entire file
         def generate():
@@ -510,10 +521,12 @@ def stream(filename):
                     yield data
                     data = f.read(chunk_size)
         
-        return Response(generate(), 
-                        mimetype='video/mp4', 
-                        content_type='video/mp4',
-                        direct_passthrough=True)
+        rv = Response(generate(), 
+                      mimetype='video/mp4', 
+                      content_type='video/mp4',
+                      direct_passthrough=True)
+        
+        return add_streaming_headers(rv)
     
     except Exception as e:
         print(f"Error streaming video: {e}")

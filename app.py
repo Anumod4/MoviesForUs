@@ -47,6 +47,15 @@ AIVEN_DB_USER = os.getenv('AIVEN_DB_USER')
 AIVEN_DB_PASSWORD = os.getenv('AIVEN_DB_PASSWORD')
 AIVEN_SSL_CERT_PATH = os.getenv('AIVEN_SSL_CERT_PATH')
 
+# Logging database configuration details
+logger.info(f"Aiven DB Configuration:")
+logger.info(f"Host: {AIVEN_DB_HOST}")
+logger.info(f"Port: {AIVEN_DB_PORT}")
+logger.info(f"Name: {AIVEN_DB_NAME}")
+logger.info(f"User: {AIVEN_DB_USER}")
+logger.info(f"Password: {'*' * len(AIVEN_DB_PASSWORD) if AIVEN_DB_PASSWORD else 'Not Set'}")
+logger.info(f"SSL Cert Path: {AIVEN_SSL_CERT_PATH}")
+
 # Construct Database URL with SSL support
 DATABASE_URL = os.getenv('DATABASE_URL', 
     f'postgresql://{AIVEN_DB_USER}:{AIVEN_DB_PASSWORD}@{AIVEN_DB_HOST}:{AIVEN_DB_PORT}/{AIVEN_DB_NAME}'
@@ -59,8 +68,15 @@ else:
     DATABASE_URL += '?sslmode=require'
 
 # Fallback to SQLite if Aiven configuration is incomplete
-if not all([AIVEN_DB_HOST, AIVEN_DB_PORT, AIVEN_DB_NAME, AIVEN_DB_USER, AIVEN_DB_PASSWORD]):
-    logger.warning("Incomplete Aiven DB configuration. Falling back to SQLite.")
+try:
+    if not all([AIVEN_DB_HOST, AIVEN_DB_PORT, AIVEN_DB_NAME, AIVEN_DB_USER, AIVEN_DB_PASSWORD]):
+        logger.warning("Incomplete Aiven DB configuration. Attempting to parse DATABASE_URL.")
+        parsed_url = urllib.parse.urlparse(DATABASE_URL)
+        if not all([parsed_url.hostname, parsed_url.port, parsed_url.path, parsed_url.username, parsed_url.password]):
+            logger.error("Both Aiven configuration and DATABASE_URL are incomplete. Falling back to SQLite.")
+            DATABASE_URL = 'sqlite:///movies.db'
+except Exception as e:
+    logger.error(f"Error parsing database configuration: {e}. Falling back to SQLite.")
     DATABASE_URL = 'sqlite:///movies.db'
 
 # Flask Configuration

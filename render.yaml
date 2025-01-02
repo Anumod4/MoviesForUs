@@ -13,6 +13,12 @@ services:
         fromDatabase:
           name: moviesforUs-db
           property: connectionString
+      - key: UPLOAD_FOLDER
+        value: /opt/render/project/src/static/uploads
+      - key: THUMBNAIL_FOLDER
+        value: /opt/render/project/src/static/thumbnails
+      - key: FLASK_DEBUG
+        value: 0
 
 databases:
   - name: moviesforUs-db

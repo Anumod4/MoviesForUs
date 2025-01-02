@@ -90,27 +90,54 @@ logger.info(f"Final Database URL: {DATABASE_URL}")
 # Flask Configuration and Folder Setup
 def configure_app_folders():
     try:
-        # Define upload and thumbnail folder paths
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        # Define upload and thumbnail folder paths with Render-specific handling
+        base_dir = os.getenv('RENDER_WORKSPACE_DIR', os.path.dirname(os.path.abspath(__file__)))
         
-        # Upload folder configuration
-        upload_folder = os.getenv('UPLOAD_FOLDER', os.path.join(base_dir, 'static', 'uploads'))
-        thumbnail_folder = os.getenv('THUMBNAIL_FOLDER', os.path.join(base_dir, 'static', 'thumbnails'))
+        # Prioritize Render-specific paths
+        render_project_dir = '/opt/render/project/src'
+        
+        # Upload folder configuration with multiple fallback options
+        upload_folder_options = [
+            os.getenv('UPLOAD_FOLDER'),  # Explicitly set in environment
+            os.path.join(render_project_dir, 'static', 'uploads'),  # Render-specific path
+            os.path.join(base_dir, 'static', 'uploads'),  # Local development path
+            'static/uploads'  # Fallback path
+        ]
+        
+        # Thumbnail folder configuration with multiple fallback options
+        thumbnail_folder_options = [
+            os.getenv('THUMBNAIL_FOLDER'),  # Explicitly set in environment
+            os.path.join(render_project_dir, 'static', 'thumbnails'),  # Render-specific path
+            os.path.join(base_dir, 'static', 'thumbnails'),  # Local development path
+            'static/thumbnails'  # Fallback path
+        ]
+        
+        # Find first valid upload folder
+        upload_folder = next((
+            folder for folder in upload_folder_options 
+            if folder and os.path.exists(os.path.dirname(folder))
+        ), 'static/uploads')
+        
+        # Find first valid thumbnail folder
+        thumbnail_folder = next((
+            folder for folder in thumbnail_folder_options 
+            if folder and os.path.exists(os.path.dirname(folder))
+        ), 'static/thumbnails')
         
         # Ensure folders exist
         os.makedirs(upload_folder, exist_ok=True)
         os.makedirs(thumbnail_folder, exist_ok=True)
         
         # Logging for verification
-        logger.info(f"Upload folder: {upload_folder}")
-        logger.info(f"Thumbnail folder: {thumbnail_folder}")
+        logger.info(f"Selected Upload folder: {upload_folder}")
+        logger.info(f"Selected Thumbnail folder: {thumbnail_folder}")
         
         return upload_folder, thumbnail_folder
     
     except Exception as e:
         logger.error(f"Error configuring app folders: {e}", exc_info=True)
         
-        # Fallback to relative paths
+        # Absolute fallback
         upload_folder = 'static/uploads'
         thumbnail_folder = 'static/thumbnails'
         

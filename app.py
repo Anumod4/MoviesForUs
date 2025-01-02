@@ -106,6 +106,77 @@ login_manager.login_view = 'login'
 # Log database configuration
 logger.info(f"Database URL: {DATABASE_URL}")
 
+# Database Initialization Function with Robust Error Handling
+def init_db():
+    try:
+        # Ensure all tables are created
+        with app.app_context():
+            logger.info("Initializing database...")
+            
+            # Drop all existing tables (use with caution in production)
+            # Uncomment only for debugging or initial setup
+            # db.drop_all()
+            
+            # Create tables if they don't exist
+            logger.info("Attempting to create database tables...")
+            
+            try:
+                # Explicitly create tables
+                db.create_all()
+                logger.info("Database tables created successfully")
+            except Exception as create_error:
+                logger.error(f"Error creating database tables: {create_error}", exc_info=True)
+                logger.error(f"Full error traceback: {traceback.format_exc()}")
+                raise
+            
+            # Verify table creation
+            try:
+                inspector = inspect(db.engine)
+                tables = inspector.get_table_names()
+                logger.info(f"Existing tables in database: {tables}")
+                
+                # Verify specific tables exist
+                required_tables = ['users', 'movies']
+                missing_tables = [table for table in required_tables if table not in tables]
+                
+                if missing_tables:
+                    logger.error(f"Missing tables: {missing_tables}")
+                    raise ValueError(f"Database is missing critical tables: {missing_tables}")
+                
+                # Additional table schema verification
+                for table in required_tables:
+                    columns = [col['name'] for col in inspector.get_columns(table)]
+                    logger.info(f"Columns in {table} table: {columns}")
+            
+            except Exception as verify_error:
+                logger.error(f"Table verification error: {verify_error}", exc_info=True)
+                logger.error(f"Full error traceback: {traceback.format_exc()}")
+                raise
+            
+            logger.info("Database initialization complete")
+    
+    except Exception as e:
+        # Comprehensive error logging
+        logger.error(f"Database initialization error: {e}", exc_info=True)
+        logger.error(f"Full error traceback: {traceback.format_exc()}")
+        
+        # Attempt to provide more context about the error
+        try:
+            logger.error(f"Database connection details: {db.engine.url}")
+        except Exception as context_error:
+            logger.error(f"Could not log database connection details: {context_error}")
+        
+        # Re-raise the original exception to prevent silent failures
+        raise
+
+# Ensure database is initialized early
+try:
+    init_db()
+except Exception as init_error:
+    logger.critical(f"FATAL: Could not initialize database: {init_error}", exc_info=True)
+    # In a production environment, you might want to exit the application
+    # sys.exit(1)
+
 # Error Handler with Detailed Logging
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -127,58 +198,6 @@ def handle_exception(e):
     
     # Render error page or return error response
     return render_template('error.html', error_details=error_details), 500
-
-# Database Initialization Function with Robust Error Handling
-def init_db():
-    try:
-        # Ensure all tables are created
-        with app.app_context():
-            logger.info("Initializing database...")
-            
-            # Create tables if they don't exist
-            db.create_all()
-            
-            # Log table creation details
-            inspector = inspect(db.engine)
-            tables = inspector.get_table_names()
-            logger.info(f"Existing tables in database: {tables}")
-            
-            # Optional: Check if users table exists and has correct schema
-            if 'users' in tables:
-                columns = [col['name'] for col in inspector.get_columns('users')]
-                logger.info(f"Columns in users table: {columns}")
-                
-                # Verify required columns
-                required_columns = ['id', 'username', 'password_hash']
-                missing_columns = [col for col in required_columns if col not in columns]
-                
-                if missing_columns:
-                    logger.error(f"Missing columns in users table: {missing_columns}")
-                    raise ValueError(f"Users table is missing critical columns: {missing_columns}")
-            
-            logger.info("Database initialization complete")
-    
-    except Exception as e:
-        # Comprehensive error logging
-        logger.error(f"Database initialization error: {e}", exc_info=True)
-        logger.error(f"Full error traceback: {traceback.format_exc()}")
-        
-        # Attempt to provide more context about the error
-        try:
-            logger.error(f"Database connection details: {db.engine.url}")
-        except Exception as context_error:
-            logger.error(f"Could not log database connection details: {context_error}")
-        
-        # Re-raise the original exception
-        raise
-
-# Call database initialization
-init_db()
-
-# Language list for dropdown
-LANGUAGES = [
-    'English', 'Hindi', 'Tamil', 'Malayalam'
-]
 
 # User Model with improved error handling
 class User(UserMixin, db.Model):
@@ -541,6 +560,11 @@ def delete_movie(movie_id):
     
     flash('Movie deleted successfully!', 'success')
     return redirect(url_for('index'))
+
+# Language list for dropdown
+LANGUAGES = [
+    'English', 'Hindi', 'Tamil', 'Malayalam'
+]
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))

@@ -1,38 +1,39 @@
+# Standard Library Imports
 import os
-import sys
-import traceback
-import logging
-import uuid
-import urllib.parse
-from dotenv import load_dotenv
-import secrets
-
-from flask import Flask, render_template, request, redirect, url_for, send_file, flash, Response
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from flask_bcrypt import Bcrypt
-from werkzeug.utils import secure_filename
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import inspect, create_engine, text
 import re
-import mimetypes
-import ffmpeg
-import tempfile
-import subprocess
 import json
+import logging
+import tempfile
+import mimetypes
+import subprocess
+from datetime import datetime, timedelta
+
+# Flask and Web Framework Imports
+from flask import (
+    Flask, request, render_template, redirect, url_for, 
+    flash, send_file, Response, stream_with_context
+)
+from werkzeug.utils import secure_filename
+from werkzeug.exceptions import RequestEntityTooLarge
+
+# Security and Authentication
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+
+# Database and ORM
+from flask_sqlalchemy import SQLAlchemy
+import psycopg2
+
+# Environment and Configuration
+from dotenv import load_dotenv
+
+# Media Processing
+import ffmpeg
+import cv2
+import magic  # MIME type detection
 
 # Load environment variables
 load_dotenv()
-
-# Optional import for OpenCV
-try:
-    import cv2
-    CV2_AVAILABLE = True
-except ImportError:
-    CV2_AVAILABLE = False
-    print("OpenCV (cv2) not available. Thumbnail generation will be skipped.")
-
-from PIL import Image
 
 app = Flask(__name__)
 
@@ -237,8 +238,6 @@ safe_init_db()
 
 # Import caching libraries
 from flask_caching import Cache
-from werkzeug.utils import secure_filename
-import hashlib
 
 # Initialize cache
 cache = Cache(app, config={
@@ -585,7 +584,7 @@ def safe_convert_video(file_path, output_path=None):
 @app.route('/stream/<filename>')
 def stream(filename):
     """
-    Enhanced video streaming with comprehensive error handling and logging
+    Enhanced video streaming with support for large files and range requests
     """
     try:
         # Secure filename and construct full path
@@ -614,13 +613,53 @@ def stream(filename):
                 flash('Could not convert video format.', 'danger')
                 return redirect(url_for('index'))
         
-        # Streaming logic
+        # Get file size and handle range requests
+        file_size = os.path.getsize(converted_path)
+        
+        # Parse range header
+        range_header = request.headers.get('Range', None)
+        
+        if range_header:
+            byte1, byte2 = 0, None
+            match = re.search(r'(\d+)-(\d*)', range_header)
+            groups = match.groups()
+
+            if groups[0]:
+                byte1 = int(groups[0])
+            if groups[1]:
+                byte2 = int(groups[1])
+            
+            if byte2 is not None:
+                length = byte2 + 1 - byte1
+            else:
+                length = file_size - byte1
+            
+            data = None
+            with open(converted_path, 'rb') as f:
+                f.seek(byte1)
+                data = f.read(length)
+            
+            rv = Response(data, 
+                          206,  # Partial Content
+                          mimetype='video/mp4', 
+                          content_type='video/mp4', 
+                          direct_passthrough=True)
+            
+            rv.headers.add('Content-Range', f'bytes {byte1}-{byte1 + length - 1}/{file_size}')
+            rv.headers.add('Accept-Ranges', 'bytes')
+            rv.headers.add('Content-Length', str(length))
+            
+            return rv
+        
+        # Full file streaming for non-range requests
         def generate():
             with open(converted_path, 'rb') as video_file:
-                data = video_file.read(app.config.get('STREAM_CHUNK_SIZE', 1024 * 1024 * 20))
+                # Use a larger chunk size for better performance with large files
+                chunk_size = app.config.get('STREAM_CHUNK_SIZE', 1024 * 1024 * 10)  # 10MB chunks
+                data = video_file.read(chunk_size)
                 while data:
                     yield data
-                    data = video_file.read(app.config.get('STREAM_CHUNK_SIZE', 1024 * 1024 * 20))
+                    data = video_file.read(chunk_size)
         
         # Stream response
         response = Response(
@@ -629,9 +668,10 @@ def stream(filename):
             content_type='video/mp4',
             headers={
                 'Content-Disposition': f'inline; filename="{safe_filename}"',
-                'Content-Length': str(os.path.getsize(converted_path)),
+                'Content-Length': str(file_size),
                 'X-Video-Original-Type': mime_type,
-                'X-Video-Metadata': json.dumps(video_validation.get('metadata', {}))
+                'X-Video-Metadata': json.dumps(video_validation.get('metadata', {})),
+                'Accept-Ranges': 'bytes'
             }
         )
         
@@ -646,7 +686,6 @@ def stream(filename):
         flash('An unexpected error occurred while streaming the video.', 'danger')
         return redirect(url_for('index'))
 
-# Registration Route with Comprehensive Error Handling
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -738,7 +777,6 @@ def register():
     
     return render_template('register.html')
 
-# Login Route with Comprehensive Error Handling
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':

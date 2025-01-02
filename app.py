@@ -44,14 +44,26 @@ logger = logging.getLogger(__name__)
 def configure_database():
     try:
         # Validate database configuration
-        if not all([
-            os.getenv('AIVEN_DB_HOST'), 
-            os.getenv('AIVEN_DB_PORT'), 
-            os.getenv('AIVEN_DB_NAME'), 
-            os.getenv('AIVEN_DB_USER'), 
-            os.getenv('AIVEN_DB_PASSWORD')
-        ]):
-            logger.warning("Incomplete Aiven DB configuration. Falling back to SQLite.")
+        db_config_keys = [
+            'AIVEN_DB_HOST', 
+            'AIVEN_DB_PORT', 
+            'AIVEN_DB_NAME', 
+            'AIVEN_DB_USER', 
+            'AIVEN_DB_PASSWORD'
+        ]
+        
+        # Log configuration details safely
+        def safe_log_config():
+            config_log = {}
+            for key in db_config_keys:
+                value = os.getenv(key)
+                config_log[key] = '*' * len(value) if value else 'Not Set'
+            return config_log
+        
+        # Check if all required keys are present
+        missing_keys = [key for key in db_config_keys if not os.getenv(key)]
+        if missing_keys:
+            print(f"Missing database configuration keys: {missing_keys}")
             return 'sqlite:///movies.db'
         
         # Construct Database URL with SSL support
@@ -65,27 +77,60 @@ def configure_database():
         
         # Additional connection validation
         try:
-            # Test database connection
-            engine = create_engine(database_url, echo=True)
-            connection = engine.connect()
-            connection.close()
-            logger.info("Database connection successful")
+            # Test database connection outside of Flask context
+            from sqlalchemy import create_engine
+            engine = create_engine(database_url, echo=False)
+            
+            # Attempt to establish a connection
+            with engine.connect() as connection:
+                # Perform a simple query to test connection
+                result = connection.execute("SELECT 1")
+                result.close()
+            
+            print("Database connection successful")
         except Exception as conn_error:
-            logger.error(f"Database connection test failed: {conn_error}", exc_info=True)
-            logger.warning("Falling back to SQLite due to connection error")
+            print(f"Database connection test failed: {conn_error}")
             return 'sqlite:///movies.db'
         
         return database_url
     
     except Exception as e:
-        logger.error(f"Error configuring database: {e}", exc_info=True)
+        print(f"Error configuring database: {e}")
         return 'sqlite:///movies.db'
 
 # Set Database URL
-DATABASE_URL = configure_database()
+try:
+    DATABASE_URL = configure_database()
+except Exception as config_error:
+    print(f"Fatal error in database configuration: {config_error}")
+    DATABASE_URL = 'sqlite:///movies.db'
 
-# Log database configuration
-logger.info(f"Final Database URL: {DATABASE_URL}")
+# Logging configuration details
+print(f"Final Database URL: {DATABASE_URL}")
+
+# Configure SQLAlchemy
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ECHO'] = False  # Disable SQL logging in production
+
+# Initialize extensions
+db = SQLAlchemy(app)
+bcrypt = Bcrypt(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+
+# Safe database initialization function
+def safe_init_db():
+    try:
+        with app.app_context():
+            db.create_all()
+            print("Database tables created successfully.")
+    except Exception as e:
+        print(f"Error initializing database: {e}")
+        traceback.print_exc()
+
+# Call safe database initialization
+safe_init_db()
 
 # Flask Configuration and Folder Setup
 def configure_app_folders():
@@ -129,13 +174,13 @@ def configure_app_folders():
         os.makedirs(thumbnail_folder, exist_ok=True)
         
         # Logging for verification
-        logger.info(f"Selected Upload folder: {upload_folder}")
-        logger.info(f"Selected Thumbnail folder: {thumbnail_folder}")
+        print(f"Selected Upload folder: {upload_folder}")
+        print(f"Selected Thumbnail folder: {thumbnail_folder}")
         
         return upload_folder, thumbnail_folder
     
     except Exception as e:
-        logger.error(f"Error configuring app folders: {e}", exc_info=True)
+        print(f"Error configuring app folders: {e}")
         
         # Absolute fallback
         upload_folder = 'static/uploads'
@@ -153,183 +198,11 @@ UPLOAD_FOLDER, THUMBNAIL_FOLDER = configure_app_folders()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['THUMBNAIL_FOLDER'] = THUMBNAIL_FOLDER
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback_secret_key')
-app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = None  # Remove file upload size limit
 
 # Logging configuration details
-logger.info(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
-logger.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
-
-# Initialize extensions
-db = SQLAlchemy(app)
-bcrypt = Bcrypt(app)
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
-
-# Aiven PostgreSQL Configuration
-AIVEN_DB_HOST = os.getenv('AIVEN_DB_HOST', 'localhost')
-AIVEN_DB_PORT = os.getenv('AIVEN_DB_PORT', '5432')
-AIVEN_DB_NAME = os.getenv('AIVEN_DB_NAME', 'defaultdb')
-AIVEN_DB_USER = os.getenv('AIVEN_DB_USER')
-AIVEN_DB_PASSWORD = os.getenv('AIVEN_DB_PASSWORD')
-AIVEN_SSL_CERT_PATH = os.getenv('AIVEN_SSL_CERT_PATH')
-
-# Logging database configuration details
-logger.info(f"Aiven DB Configuration:")
-logger.info(f"Host: {AIVEN_DB_HOST}")
-logger.info(f"Port: {AIVEN_DB_PORT}")
-logger.info(f"Name: {AIVEN_DB_NAME}")
-logger.info(f"User: {AIVEN_DB_USER}")
-logger.info(f"Password: {'*' * len(AIVEN_DB_PASSWORD) if AIVEN_DB_PASSWORD else 'Not Set'}")
-logger.info(f"SSL Cert Path: {AIVEN_SSL_CERT_PATH}")
-
-# Database Initialization Function with Robust Error Handling
-def init_db():
-    try:
-        # Ensure all tables are created
-        with app.app_context():
-            logger.info("Initializing database...")
-            
-            # Forcibly drop and recreate tables (use with caution in production)
-            try:
-                logger.warning("Attempting to drop existing tables...")
-                db.drop_all()
-                logger.info("Existing tables dropped successfully")
-            except Exception as drop_error:
-                logger.error(f"Error dropping tables: {drop_error}", exc_info=True)
-            
-            # Create tables if they don't exist
-            logger.info("Attempting to create database tables...")
-            
-            try:
-                # Explicitly create tables
-                db.create_all()
-                logger.info("Database tables created successfully")
-            except Exception as create_error:
-                logger.error(f"Error creating database tables: {create_error}", exc_info=True)
-                logger.error(f"Full error traceback: {traceback.format_exc()}")
-                raise
-            
-            # Verify table creation with more detailed diagnostics
-            try:
-                inspector = inspect(db.engine)
-                
-                # Get all schemas
-                schemas = inspector.get_schema_names()
-                logger.info(f"Available schemas: {schemas}")
-                
-                # Get all tables across all schemas
-                all_tables = []
-                for schema in schemas:
-                    try:
-                        schema_tables = inspector.get_table_names(schema=schema)
-                        all_tables.extend([f"{schema}.{table}" for table in schema_tables])
-                    except Exception as schema_error:
-                        logger.error(f"Error getting tables for schema {schema}: {schema_error}")
-                
-                logger.info(f"All tables found: {all_tables}")
-                
-                # Verify specific tables exist
-                required_tables = ['users', 'movies']
-                
-                # Attempt to create tables manually if not found
-                for table in required_tables:
-                    try:
-                        # Explicitly check table existence
-                        table_exists = db.engine.dialect.has_table(db.engine, table)
-                        
-                        if not table_exists:
-                            logger.warning(f"Table {table} does not exist. Attempting manual creation...")
-                            
-                            # Depending on your model, you might need to adjust this
-                            if table == 'users':
-                                db.session.execute('''
-                                    CREATE TABLE IF NOT EXISTS users (
-                                        id SERIAL PRIMARY KEY,
-                                        username VARCHAR(80) UNIQUE NOT NULL,
-                                        password_hash VARCHAR(255) NOT NULL
-                                    )
-                                ''')
-                            elif table == 'movies':
-                                db.session.execute('''
-                                    CREATE TABLE IF NOT EXISTS movies (
-                                        id SERIAL PRIMARY KEY,
-                                        title VARCHAR(100) NOT NULL,
-                                        filename VARCHAR(200) NOT NULL,
-                                        thumbnail VARCHAR(200),
-                                        language VARCHAR(50) NOT NULL,
-                                        user_id INTEGER NOT NULL
-                                    )
-                                ''')
-                            
-                            db.session.commit()
-                            logger.info(f"Manually created table {table}")
-                    
-                    except Exception as table_error:
-                        logger.error(f"Error creating table {table}: {table_error}", exc_info=True)
-                
-                # Final verification
-                tables = inspector.get_table_names()
-                logger.info(f"Existing tables in database: {tables}")
-                
-                missing_tables = [table for table in required_tables if table not in tables]
-                
-                if missing_tables:
-                    logger.error(f"Still missing tables: {missing_tables}")
-                    raise ValueError(f"Database is missing critical tables: {missing_tables}")
-            
-            except Exception as verify_error:
-                logger.error(f"Table verification error: {verify_error}", exc_info=True)
-                logger.error(f"Full error traceback: {traceback.format_exc()}")
-                raise
-            
-            logger.info("Database initialization complete")
-    
-    except Exception as e:
-        # Comprehensive error logging
-        logger.error(f"Database initialization error: {e}", exc_info=True)
-        logger.error(f"Full error traceback: {traceback.format_exc()}")
-        
-        # Attempt to provide more context about the error
-        try:
-            logger.error(f"Database connection details: {db.engine.url}")
-        except Exception as context_error:
-            logger.error(f"Could not log database connection details: {context_error}")
-        
-        # Re-raise the original exception to prevent silent failures
-        raise
-
-# Ensure database is initialized early
-try:
-    init_db()
-except Exception as init_error:
-    logger.critical(f"FATAL: Could not initialize database: {init_error}", exc_info=True)
-    # In a production environment, you might want to exit the application
-    # sys.exit(1)
-
-# Error Handler with Detailed Logging
-@app.errorhandler(Exception)
-def handle_exception(e):
-    # Log the error
-    logger.error("An error occurred:", exc_info=True)
-    
-    # Detailed error tracking
-    error_id = str(uuid.uuid4())
-    error_details = {
-        'error_id': error_id,
-        'error_type': type(e).__name__,
-        'error_message': str(e),
-        'traceback': traceback.format_exc()
-    }
-    
-    # Log full traceback
-    logger.error(f"Error ID: {error_id}")
-    logger.error(f"Full Traceback: {error_details['traceback']}")
-    
-    # Render error page or return error response
-    return render_template('error.html', error_details=error_details), 500
+print(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
+print(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
 
 # User Model with improved error handling
 class User(UserMixin, db.Model):
@@ -356,10 +229,10 @@ class Movie(db.Model):
 def load_user(user_id):
     try:
         user = User.query.get(int(user_id))
-        logger.info(f"User loaded: {user}")
+        print(f"User loaded: {user}")
         return user
     except Exception as e:
-        logger.error(f"Error loading user {user_id}: {e}")
+        print(f"Error loading user {user_id}: {e}")
         return None
 
 # Registration Route with Comprehensive Error Handling
@@ -369,33 +242,33 @@ def register():
         try:
             # Capture all form data for detailed logging
             form_data = dict(request.form)
-            logger.info(f"Full registration form data: {form_data}")
+            print(f"Full registration form data: {form_data}")
             
             username = request.form.get('username', '').strip()
             password = request.form.get('password', '')
             
-            logger.info(f"Registration attempt for username: {username}")
+            print(f"Registration attempt for username: {username}")
             
             # Enhanced input validation
             if not username:
-                logger.warning("Registration failed: Empty username")
+                print("Registration failed: Empty username")
                 flash('Username cannot be empty')
                 return redirect(url_for('register'))
             
             if len(username) < 3:
-                logger.warning(f"Registration failed: Username too short - {username}")
+                print(f"Registration failed: Username too short - {username}")
                 flash('Username must be at least 3 characters long')
                 return redirect(url_for('register'))
             
             if len(password) < 6:
-                logger.warning("Registration failed: Password too short")
+                print("Registration failed: Password too short")
                 flash('Password must be at least 6 characters long')
                 return redirect(url_for('register'))
             
             # Check for special characters in username
             import re
             if not re.match(r'^[a-zA-Z0-9_]+$', username):
-                logger.warning(f"Registration failed: Invalid username format - {username}")
+                print(f"Registration failed: Invalid username format - {username}")
                 flash('Username can only contain letters, numbers, and underscores')
                 return redirect(url_for('register'))
             
@@ -403,7 +276,7 @@ def register():
             try:
                 existing_user = User.query.filter_by(username=username).first()
                 if existing_user:
-                    logger.warning(f"Registration failed: Username {username} already exists")
+                    print(f"Registration failed: Username {username} already exists")
                     flash('Username already exists')
                     return redirect(url_for('register'))
                 
@@ -415,7 +288,7 @@ def register():
                 db.session.add(new_user)
                 db.session.commit()
                 
-                logger.info(f"User {username} registered successfully")
+                print(f"User {username} registered successfully")
                 flash('Registration successful. Please log in.')
                 return redirect(url_for('login'))
             
@@ -424,30 +297,30 @@ def register():
                 db.session.rollback()
                 
                 # Log full error details
-                logger.error(f"Database error during user registration: {db_error}", exc_info=True)
+                print(f"Database error during user registration: {db_error}")
                 
                 # Additional error context
-                logger.error(f"Error details: {traceback.format_exc()}")
+                print(f"Error details: {traceback.format_exc()}")
                 
                 # Log database session state
                 try:
-                    logger.error(f"Database session state: {db.session}")
+                    print(f"Database session state: {db.session}")
                 except Exception as session_error:
-                    logger.error(f"Could not log session state: {session_error}")
+                    print(f"Could not log session state: {session_error}")
                 
                 flash(f'A database error occurred: {str(db_error)}. Please try again.')
                 return redirect(url_for('register'))
         
         except Exception as e:
             # Catch-all error handling with maximum information
-            logger.error(f"Unexpected registration error: {e}", exc_info=True)
+            print(f"Unexpected registration error: {e}")
             
             # Log full traceback
-            logger.error(f"Full error traceback: {traceback.format_exc()}")
+            print(f"Full error traceback: {traceback.format_exc()}")
             
             # Log request details for debugging
-            logger.error(f"Request method: {request.method}")
-            logger.error(f"Request form data: {dict(request.form)}")
+            print(f"Request method: {request.method}")
+            print(f"Request form data: {dict(request.form)}")
             
             flash(f'An unexpected error occurred: {str(e)}. Please try again.')
             return redirect(url_for('register'))
@@ -462,11 +335,11 @@ def login():
             username = request.form.get('username')
             password = request.form.get('password')
             
-            logger.info(f"Login attempt for username: {username}")
+            print(f"Login attempt for username: {username}")
             
             # Validate input
             if not username or not password:
-                logger.warning("Login failed: Missing username or password")
+                print("Login failed: Missing username or password")
                 flash('Username and password are required')
                 return redirect(url_for('login'))
             
@@ -476,16 +349,16 @@ def login():
             # Check password
             if user and bcrypt.check_password_hash(user.password_hash, password):
                 login_user(user)
-                logger.info(f"User {username} logged in successfully")
+                print(f"User {username} logged in successfully")
                 flash('Login successful')
                 return redirect(url_for('index'))
             else:
-                logger.warning(f"Login failed for username: {username}")
+                print(f"Login failed for username: {username}")
                 flash('Invalid username or password')
                 return redirect(url_for('login'))
         
         except Exception as e:
-            logger.error(f"Login error: {e}", exc_info=True)
+            print(f"Login error: {e}")
             flash('An error occurred during login')
             return redirect(url_for('login'))
     

@@ -1,3 +1,4 @@
+import os
 from flask import Flask, render_template, request, redirect, url_for, send_file, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -5,7 +6,16 @@ from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
 import uuid
 import os
-import cv2
+
+# Optional import for OpenCV
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    print("OpenCV (cv2) not available. Thumbnail generation will be skipped.")
+
+from PIL import Image
 
 app = Flask(__name__)
 
@@ -47,23 +57,31 @@ class Movie(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
 def generate_thumbnail(video_path, thumbnail_path):
-    """Generate a thumbnail for the uploaded video."""
-    try:
-        video = cv2.VideoCapture(video_path)
-        success, image = video.read()
-        if success:
+    """Generate thumbnail for video with fallback to PIL if cv2 is not available."""
+    if CV2_AVAILABLE:
+        # OpenCV method
+        cap = cv2.VideoCapture(video_path)
+        ret, frame = cap.read()
+        if ret:
             # Resize thumbnail while maintaining aspect ratio
-            height, width = image.shape[:2]
+            height, width = frame.shape[:2]
             aspect_ratio = width / height
             new_width = 400
             new_height = int(new_width / aspect_ratio)
-            resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
-            
-            cv2.imwrite(thumbnail_path, resized_image)
+            resized_frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            cv2.imwrite(thumbnail_path, resized_frame)
+            cap.release()
             return True
-        return False
+    
+    # Fallback PIL method (less accurate)
+    try:
+        from PIL import Image
+        img = Image.open(video_path)
+        img.thumbnail((400, 400)) # Resize to 400x400
+        img.save(thumbnail_path)
+        return True
     except Exception as e:
-        print(f"Thumbnail generation error: {e}")
+        print(f"Thumbnail generation failed: {e}")
         return False
 
 @login_manager.user_loader

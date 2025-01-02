@@ -187,15 +187,32 @@ def load_user(user_id):
 def register():
     if request.method == 'POST':
         try:
-            username = request.form.get('username')
-            password = request.form.get('password')
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '')
             
             logger.info(f"Registration attempt for username: {username}")
             
-            # Validate input
-            if not username or not password:
-                logger.warning("Registration failed: Missing username or password")
-                flash('Username and password are required')
+            # Enhanced input validation
+            if not username:
+                logger.warning("Registration failed: Empty username")
+                flash('Username cannot be empty')
+                return redirect(url_for('register'))
+            
+            if len(username) < 3:
+                logger.warning(f"Registration failed: Username too short - {username}")
+                flash('Username must be at least 3 characters long')
+                return redirect(url_for('register'))
+            
+            if len(password) < 6:
+                logger.warning("Registration failed: Password too short")
+                flash('Password must be at least 6 characters long')
+                return redirect(url_for('register'))
+            
+            # Check for special characters in username
+            import re
+            if not re.match(r'^[a-zA-Z0-9_]+$', username):
+                logger.warning(f"Registration failed: Invalid username format - {username}")
+                flash('Username can only contain letters, numbers, and underscores')
                 return redirect(url_for('register'))
             
             # Check if user already exists
@@ -206,22 +223,29 @@ def register():
                 return redirect(url_for('register'))
             
             # Create new user
-            hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-            new_user = User(username=username, password_hash=hashed_password)
+            try:
+                hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+                new_user = User(username=username, password_hash=hashed_password)
+                
+                # Add and commit to database
+                db.session.add(new_user)
+                db.session.commit()
+                
+                logger.info(f"User {username} registered successfully")
+                flash('Registration successful. Please log in.')
+                return redirect(url_for('login'))
             
-            # Add and commit to database
-            db.session.add(new_user)
-            db.session.commit()
-            
-            logger.info(f"User {username} registered successfully")
-            flash('Registration successful. Please log in.')
-            return redirect(url_for('login'))
+            except Exception as db_error:
+                # More specific database error handling
+                db.session.rollback()
+                logger.error(f"Database error during user registration: {db_error}", exc_info=True)
+                flash('A database error occurred. Please try again.')
+                return redirect(url_for('register'))
         
         except Exception as e:
-            # Rollback in case of error
-            db.session.rollback()
-            logger.error(f"Registration error: {e}", exc_info=True)
-            flash('An error occurred during registration')
+            # Catch-all error handling
+            logger.error(f"Unexpected registration error: {e}", exc_info=True)
+            flash('An unexpected error occurred. Please try again.')
             return redirect(url_for('register'))
     
     return render_template('register.html')

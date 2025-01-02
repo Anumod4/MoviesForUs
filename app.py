@@ -11,6 +11,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
+from sqlalchemy.exc import SQLAlchemyError
 
 # Load environment variables
 load_dotenv()
@@ -38,27 +39,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Oracle Cloud PostgreSQL Configuration
-try:
-    import oracledb
-    # Optional: Configure Oracle client library path if needed
-    # oracledb.init_oracle_client(lib_dir="/path/to/oracle/instantclient")
-except ImportError:
-    logger.warning("Oracle database library not found. Using fallback database.")
+# Aiven PostgreSQL Configuration
+AIVEN_DB_HOST = os.getenv('AIVEN_DB_HOST', 'localhost')
+AIVEN_DB_PORT = os.getenv('AIVEN_DB_PORT', '5432')
+AIVEN_DB_NAME = os.getenv('AIVEN_DB_NAME', 'defaultdb')
+AIVEN_DB_USER = os.getenv('AIVEN_DB_USER')
+AIVEN_DB_PASSWORD = os.getenv('AIVEN_DB_PASSWORD')
+AIVEN_SSL_CERT_PATH = os.getenv('AIVEN_SSL_CERT_PATH')
 
-# Database URL Configuration
-ORACLE_DB_HOST = os.getenv('ORACLE_DB_HOST', 'localhost')
-ORACLE_DB_PORT = os.getenv('ORACLE_DB_PORT', '1521')
-ORACLE_DB_SERVICE = os.getenv('ORACLE_DB_SERVICE', 'XEPDB1')
-ORACLE_DB_USER = os.getenv('ORACLE_DB_USER')
-ORACLE_DB_PASSWORD = os.getenv('ORACLE_DB_PASSWORD')
+# Construct Database URL with SSL support
+DATABASE_URL = os.getenv('DATABASE_URL', 
+    f'postgresql://{AIVEN_DB_USER}:{AIVEN_DB_PASSWORD}@{AIVEN_DB_HOST}:{AIVEN_DB_PORT}/{AIVEN_DB_NAME}'
+)
 
-# Construct Database URL
-DATABASE_URL = os.getenv('DATABASE_URL', f'oracle+oracledb://{ORACLE_DB_USER}:{ORACLE_DB_PASSWORD}@{ORACLE_DB_HOST}:{ORACLE_DB_PORT}/{ORACLE_DB_SERVICE}')
+# SSL Configuration for Aiven
+if AIVEN_SSL_CERT_PATH and os.path.exists(AIVEN_SSL_CERT_PATH):
+    DATABASE_URL += '?sslmode=verify-full&sslcert=' + AIVEN_SSL_CERT_PATH
+else:
+    DATABASE_URL += '?sslmode=require'
 
-# Fallback to SQLite if Oracle configuration is incomplete
-if not all([ORACLE_DB_HOST, ORACLE_DB_PORT, ORACLE_DB_SERVICE, ORACLE_DB_USER, ORACLE_DB_PASSWORD]):
-    logger.warning("Incomplete Oracle DB configuration. Falling back to SQLite.")
+# Fallback to SQLite if Aiven configuration is incomplete
+if not all([AIVEN_DB_HOST, AIVEN_DB_PORT, AIVEN_DB_NAME, AIVEN_DB_USER, AIVEN_DB_PASSWORD]):
+    logger.warning("Incomplete Aiven DB configuration. Falling back to SQLite.")
     DATABASE_URL = 'sqlite:///movies.db'
 
 # Flask Configuration
@@ -83,7 +85,7 @@ login_manager.login_view = 'login'
 # Log database configuration
 logger.info(f"Database URL: {DATABASE_URL}")
 
-# Error Handler
+# Error Handler with Detailed Logging
 @app.errorhandler(Exception)
 def handle_exception(e):
     # Log the error
@@ -104,6 +106,25 @@ def handle_exception(e):
     
     # Render error page or return error response
     return render_template('error.html', error_details=error_details), 500
+
+# Database Initialization Function with Robust Error Handling
+def init_db():
+    with app.app_context():
+        try:
+            logger.info("Initializing database...")
+            db.create_all()
+            logger.info("Database tables created successfully")
+        except SQLAlchemyError as e:
+            logger.error(f"Database initialization error: {e}", exc_info=True)
+            # Attempt to rollback any partial changes
+            db.session.rollback()
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected database initialization error: {e}", exc_info=True)
+            raise
+
+# Call database initialization
+init_db()
 
 # Language list for dropdown
 LANGUAGES = [
@@ -221,20 +242,6 @@ def login():
             return redirect(url_for('login'))
     
     return render_template('login.html')
-
-# Database Initialization Function with Improved Logging
-def init_db():
-    with app.app_context():
-        try:
-            logger.info("Initializing database...")
-            db.create_all()
-            logger.info("Database tables created successfully")
-        except Exception as e:
-            logger.error(f"Database initialization error: {e}", exc_info=True)
-            raise
-
-# Call database initialization
-init_db()
 
 def generate_thumbnail(video_path, thumbnail_path):
     """Generate thumbnail for video with fallback to PIL if cv2 is not available."""

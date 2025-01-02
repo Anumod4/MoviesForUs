@@ -11,4 +11,4 @@ sqlalchemy==2.0.15
 werkzeug==2.3.4
 opencv-python-headless==4.7.0.72
 psycopg2-binary==2.9.6
-oracledb==1.2.1  # Oracle database connector
+aiven-client==2.16.0  # Aiven management client

@@ -5,6 +5,7 @@ import logging
 import uuid
 import urllib.parse
 from dotenv import load_dotenv
+import secrets
 
 from flask import Flask, render_template, request, redirect, url_for, send_file, flash, Response
 from flask_sqlalchemy import SQLAlchemy
@@ -29,6 +30,13 @@ except ImportError:
 from PIL import Image
 
 app = Flask(__name__)
+
+# Set secret key explicitly
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
+
+# Ensure the secret key is set before initializing extensions
+if not app.config['SECRET_KEY']:
+    raise ValueError("No SECRET_KEY set for Flask application. Please set it in .env file.")
 
 # Logging configuration
 logging.basicConfig(

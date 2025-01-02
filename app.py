@@ -440,7 +440,7 @@ def is_convertible_video(filename):
 
 def validate_video_file(file_path):
     """
-    Comprehensive video file validation
+    Comprehensive video file validation with multiple detection methods
     
     Args:
         file_path (str): Path to the video file
@@ -449,8 +449,6 @@ def validate_video_file(file_path):
         dict: Validation results with detailed information
     """
     try:
-        import magic  # python-magic for MIME type detection
-        
         # Basic file checks
         if not os.path.exists(file_path):
             return {
@@ -467,62 +465,122 @@ def validate_video_file(file_path):
                 'details': f'Size: {file_size} bytes'
             }
         
-        # Detect MIME type
-        mime_type = magic.from_file(file_path, mime=True)
+        # Multiple MIME type detection methods
+        mime_type = None
+        
+        # Method 1: python-magic
+        try:
+            import magic
+            mime_type = magic.from_file(file_path, mime=True)
+        except ImportError:
+            logging.warning("python-magic not installed. Falling back to alternative detection.")
+        
+        # Method 2: mimetypes fallback
+        if not mime_type:
+            mime_type = mimetypes.guess_type(file_path)[0]
+        
+        # Method 3: FFprobe detection
+        if not mime_type:
+            try:
+                ffprobe_output = subprocess.check_output([
+                    'ffprobe', 
+                    '-v', 'error', 
+                    '-select_streams', 'v:0', 
+                    '-show_entries', 'stream=codec_type', 
+                    '-of', 'default=noprint_wrappers=1:nokey=1', 
+                    file_path
+                ], universal_newlines=True).strip()
+                
+                if ffprobe_output == 'video':
+                    mime_type = 'video/unknown'
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                logging.warning("FFprobe detection failed.")
         
         # Supported video MIME types
         supported_mime_types = [
             'video/mp4', 'video/x-matroska', 'video/avi', 
             'video/x-msvideo', 'video/quicktime', 'video/webm',
-            'video/x-ms-wmv', 'video/mpeg'
+            'video/x-ms-wmv', 'video/mpeg', 'video/unknown'
         ]
         
-        if mime_type not in supported_mime_types:
+        if not mime_type or mime_type not in supported_mime_types:
             return {
                 'valid': False, 
                 'reason': 'Unsupported video format',
-                'details': f'Detected MIME: {mime_type}'
+                'details': f'Detected MIME: {mime_type or "Unknown"}'
             }
         
         # Optional: Basic video metadata extraction
+        metadata = {}
         try:
             import cv2
             cap = cv2.VideoCapture(file_path)
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            metadata = {
+                'width': int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                'height': int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                'fps': cap.get(cv2.CAP_PROP_FPS),
+                'total_frames': int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            }
             cap.release()
         except Exception as metadata_error:
-            width, height, fps, total_frames = None, None, None, None
             logging.warning(f"Could not extract video metadata: {metadata_error}")
         
         return {
             'valid': True,
             'mime_type': mime_type,
             'size': file_size,
-            'metadata': {
-                'width': width,
-                'height': height,
-                'fps': fps,
-                'total_frames': total_frames
-            }
+            'metadata': metadata
         }
     
-    except ImportError as import_error:
-        logging.error(f"Missing dependencies for video validation: {import_error}")
-        return {
-            'valid': False,
-            'reason': 'Missing validation dependencies',
-            'details': str(import_error)
-        }
     except Exception as e:
-        logging.error(f"Unexpected error validating video: {e}")
+        logging.error(f"Unexpected error validating video: {e}", exc_info=True)
         return {
             'valid': False,
             'reason': 'Unexpected validation error',
             'details': str(e)
         }
+
+def safe_convert_video(file_path, output_path=None):
+    """
+    Safe video conversion with multiple fallback methods
+    
+    Args:
+        file_path (str): Path to input video file
+        output_path (str, optional): Path to save converted video
+    
+    Returns:
+        str: Path to converted video file
+    """
+    conversion_methods = [
+        # Method 1: FFmpeg conversion
+        lambda: convert_video_to_mp4(file_path, output_path),
+        
+        # Method 2: Subprocess FFmpeg with different settings
+        lambda: subprocess.run([
+            'ffmpeg', 
+            '-i', file_path, 
+            '-c:v', 'libx264', 
+            '-preset', 'medium', 
+            '-crf', '23', 
+            '-c:a', 'aac', 
+            output_path or (file_path + '.mp4')
+        ], check=True),
+        
+        # Method 3: Fallback to original file
+        lambda: file_path
+    ]
+    
+    last_error = None
+    for method in conversion_methods:
+        try:
+            result = method()
+            return result if isinstance(result, str) else file_path
+        except Exception as e:
+            logging.warning(f"Video conversion method failed: {e}")
+            last_error = e
+    
+    logging.error(f"All video conversion methods failed: {last_error}")
+    return file_path
 
 @app.route('/stream/<filename>')
 def stream(filename):
@@ -544,12 +602,12 @@ def stream(filename):
         
         # Determine conversion strategy
         mime_type = video_validation.get('mime_type', 'video/mp4')
-        converted_path = file_path
         
-        # Convert if not MP4
+        # Convert video if not MP4
+        converted_path = file_path
         if mime_type != 'video/mp4':
             try:
-                converted_path = convert_video_to_mp4(file_path)
+                converted_path = safe_convert_video(file_path)
                 logging.info(f"Converted {safe_filename} from {mime_type} to MP4")
             except Exception as conv_error:
                 logging.error(f"Video conversion failed: {conv_error}")

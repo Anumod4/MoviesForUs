@@ -12,6 +12,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import inspect
 
 # Load environment variables
 load_dotenv()
@@ -129,19 +130,47 @@ def handle_exception(e):
 
 # Database Initialization Function with Robust Error Handling
 def init_db():
-    with app.app_context():
-        try:
+    try:
+        # Ensure all tables are created
+        with app.app_context():
             logger.info("Initializing database...")
+            
+            # Create tables if they don't exist
             db.create_all()
-            logger.info("Database tables created successfully")
-        except SQLAlchemyError as e:
-            logger.error(f"Database initialization error: {e}", exc_info=True)
-            # Attempt to rollback any partial changes
-            db.session.rollback()
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected database initialization error: {e}", exc_info=True)
-            raise
+            
+            # Log table creation details
+            inspector = inspect(db.engine)
+            tables = inspector.get_table_names()
+            logger.info(f"Existing tables in database: {tables}")
+            
+            # Optional: Check if users table exists and has correct schema
+            if 'users' in tables:
+                columns = [col['name'] for col in inspector.get_columns('users')]
+                logger.info(f"Columns in users table: {columns}")
+                
+                # Verify required columns
+                required_columns = ['id', 'username', 'password_hash']
+                missing_columns = [col for col in required_columns if col not in columns]
+                
+                if missing_columns:
+                    logger.error(f"Missing columns in users table: {missing_columns}")
+                    raise ValueError(f"Users table is missing critical columns: {missing_columns}")
+            
+            logger.info("Database initialization complete")
+    
+    except Exception as e:
+        # Comprehensive error logging
+        logger.error(f"Database initialization error: {e}", exc_info=True)
+        logger.error(f"Full error traceback: {traceback.format_exc()}")
+        
+        # Attempt to provide more context about the error
+        try:
+            logger.error(f"Database connection details: {db.engine.url}")
+        except Exception as context_error:
+            logger.error(f"Could not log database connection details: {context_error}")
+        
+        # Re-raise the original exception
+        raise
 
 # Call database initialization
 init_db()
@@ -187,6 +216,10 @@ def load_user(user_id):
 def register():
     if request.method == 'POST':
         try:
+            # Capture all form data for detailed logging
+            form_data = dict(request.form)
+            logger.info(f"Full registration form data: {form_data}")
+            
             username = request.form.get('username', '').strip()
             password = request.form.get('password', '')
             
@@ -216,14 +249,14 @@ def register():
                 return redirect(url_for('register'))
             
             # Check if user already exists
-            existing_user = User.query.filter_by(username=username).first()
-            if existing_user:
-                logger.warning(f"Registration failed: Username {username} already exists")
-                flash('Username already exists')
-                return redirect(url_for('register'))
-            
-            # Create new user
             try:
+                existing_user = User.query.filter_by(username=username).first()
+                if existing_user:
+                    logger.warning(f"Registration failed: Username {username} already exists")
+                    flash('Username already exists')
+                    return redirect(url_for('register'))
+                
+                # Create new user
                 hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
                 new_user = User(username=username, password_hash=hashed_password)
                 
@@ -238,14 +271,34 @@ def register():
             except Exception as db_error:
                 # More specific database error handling
                 db.session.rollback()
+                
+                # Log full error details
                 logger.error(f"Database error during user registration: {db_error}", exc_info=True)
-                flash('A database error occurred. Please try again.')
+                
+                # Additional error context
+                logger.error(f"Error details: {traceback.format_exc()}")
+                
+                # Log database session state
+                try:
+                    logger.error(f"Database session state: {db.session}")
+                except Exception as session_error:
+                    logger.error(f"Could not log session state: {session_error}")
+                
+                flash(f'A database error occurred: {str(db_error)}. Please try again.')
                 return redirect(url_for('register'))
         
         except Exception as e:
-            # Catch-all error handling
+            # Catch-all error handling with maximum information
             logger.error(f"Unexpected registration error: {e}", exc_info=True)
-            flash('An unexpected error occurred. Please try again.')
+            
+            # Log full traceback
+            logger.error(f"Full error traceback: {traceback.format_exc()}")
+            
+            # Log request details for debugging
+            logger.error(f"Request method: {request.method}")
+            logger.error(f"Request form data: {dict(request.form)}")
+            
+            flash(f'An unexpected error occurred: {str(e)}. Please try again.')
             return redirect(url_for('register'))
     
     return render_template('register.html')

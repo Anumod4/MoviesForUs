@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container error-page">
+    <div class="error-container">
+        <h1>Oops! Something Went Wrong</h1>
+        <p class="error-message">An unexpected error occurred while processing your request.</p>
+        
+        <div class="error-details">
+            <h2>Error Details</h2>
+            <table>
+                <tr>
+                    <th>Error ID:</th>
+                    <td>{{ error_details.error_id }}</td>
+                </tr>
+                <tr>
+                    <th>Error Type:</th>
+                    <td>{{ error_details.error_type }}</td>
+                </tr>
+                <tr>
+                    <th>Error Message:</th>
+                    <td>{{ error_details.error_message }}</td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="error-actions">
+            <a href="{{ url_for('index') }}" class="btn btn-primary">Return to Home</a>
+            <a href="{{ url_for('login') }}" class="btn btn-secondary">Login</a>
+        </div>
+        
+        {% if current_user.is_authenticated and current_user.username == 'admin' %}
+        <div class="error-traceback">
+            <h3>Full Traceback (Admin Only)</h3>
+            <pre>{{ error_details.traceback }}</pre>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

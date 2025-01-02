@@ -1,13 +1,15 @@
 import os
+import sys
+import traceback
+import logging
+import uuid
+import urllib.parse
+
 from flask import Flask, render_template, request, redirect, url_for, send_file, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
-import uuid
-import os
-import urllib.parse
-import logging
 
 # Optional import for OpenCV
 try:
@@ -21,15 +23,46 @@ from PIL import Image
 
 app = Flask(__name__)
 
-# Logging configuration
-logging.basicConfig(level=logging.INFO)
+# Advanced Logging Configuration
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),  # Log to console
+        logging.FileHandler('app.log')      # Log to file
+    ]
+)
 logger = logging.getLogger(__name__)
+
+# Error Handler
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Log the error
+    logger.error("An error occurred:", exc_info=True)
+    
+    # Detailed error tracking
+    error_id = str(uuid.uuid4())
+    error_details = {
+        'error_id': error_id,
+        'error_type': type(e).__name__,
+        'error_message': str(e),
+        'traceback': traceback.format_exc()
+    }
+    
+    # Log full traceback
+    logger.error(f"Error ID: {error_id}")
+    logger.error(f"Full Traceback: {error_details['traceback']}")
+    
+    # Render error page or return error response
+    return render_template('error.html', error_details=error_details), 500
 
 # Production Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'fallback_secret_key')
 
-# PostgreSQL Connection Handling
+# PostgreSQL Connection Handling with Detailed Logging
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///movies.db')
+logger.info(f"Database URL: {database_url}")
+
 if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 
@@ -37,17 +70,23 @@ app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['THUMBNAIL_FOLDER'] = 'static/thumbnails'
-app.config['MAX_CONTENT_LENGTH'] = None  # Remove file size limit
+app.config['MAX_CONTENT_LENGTH'] = None
 
-# Create upload and thumbnail directories if they don't exist
+# Create directories
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER']), exist_ok=True)
 os.makedirs(os.path.join(app.config['THUMBNAIL_FOLDER']), exist_ok=True)
 
-db = SQLAlchemy(app)
-bcrypt = Bcrypt(app)
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
+# Initialize extensions with error logging
+try:
+    db = SQLAlchemy(app)
+    bcrypt = Bcrypt(app)
+    login_manager = LoginManager()
+    login_manager.init_app(app)
+    login_manager.login_view = 'login'
+    logger.info("Extensions initialized successfully")
+except Exception as e:
+    logger.error(f"Error initializing extensions: {e}")
+    raise
 
 # Language list for dropdown
 LANGUAGES = [
@@ -56,8 +95,9 @@ LANGUAGES = [
 
 # User Model with improved error handling
 class User(UserMixin, db.Model):
+    __tablename__ = 'users'  # Explicit table name
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     movies = db.relationship('Movie', backref='uploader', lazy=True)
 
@@ -66,22 +106,25 @@ class User(UserMixin, db.Model):
 
 # Movie Model
 class Movie(db.Model):
+    __tablename__ = 'movies'  # Explicit table name
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(100), nullable=False)
     filename = db.Column(db.String(200), nullable=False)
     thumbnail = db.Column(db.String(200), nullable=True)
     language = db.Column(db.String(50), nullable=False)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
 @login_manager.user_loader
 def load_user(user_id):
     try:
-        return User.query.get(int(user_id))
+        user = User.query.get(int(user_id))
+        logger.info(f"User loaded: {user}")
+        return user
     except Exception as e:
-        logger.error(f"Error loading user: {e}")
+        logger.error(f"Error loading user {user_id}: {e}")
         return None
 
-# Registration Route with Improved Error Handling
+# Registration Route with Comprehensive Error Handling
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -89,14 +132,18 @@ def register():
             username = request.form.get('username')
             password = request.form.get('password')
             
+            logger.info(f"Registration attempt for username: {username}")
+            
             # Validate input
             if not username or not password:
+                logger.warning("Registration failed: Missing username or password")
                 flash('Username and password are required')
                 return redirect(url_for('register'))
             
             # Check if user already exists
             existing_user = User.query.filter_by(username=username).first()
             if existing_user:
+                logger.warning(f"Registration failed: Username {username} already exists")
                 flash('Username already exists')
                 return redirect(url_for('register'))
             
@@ -108,19 +155,20 @@ def register():
             db.session.add(new_user)
             db.session.commit()
             
+            logger.info(f"User {username} registered successfully")
             flash('Registration successful. Please log in.')
             return redirect(url_for('login'))
         
         except Exception as e:
             # Rollback in case of error
             db.session.rollback()
-            logger.error(f"Registration error: {e}")
+            logger.error(f"Registration error: {e}", exc_info=True)
             flash('An error occurred during registration')
             return redirect(url_for('register'))
     
     return render_template('register.html')
 
-# Login Route with Improved Error Handling
+# Login Route with Comprehensive Error Handling
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -128,8 +176,11 @@ def login():
             username = request.form.get('username')
             password = request.form.get('password')
             
+            logger.info(f"Login attempt for username: {username}")
+            
             # Validate input
             if not username or not password:
+                logger.warning("Login failed: Missing username or password")
                 flash('Username and password are required')
                 return redirect(url_for('login'))
             
@@ -139,14 +190,16 @@ def login():
             # Check password
             if user and bcrypt.check_password_hash(user.password_hash, password):
                 login_user(user)
+                logger.info(f"User {username} logged in successfully")
                 flash('Login successful')
                 return redirect(url_for('index'))
             else:
+                logger.warning(f"Login failed for username: {username}")
                 flash('Invalid username or password')
                 return redirect(url_for('login'))
         
         except Exception as e:
-            logger.error(f"Login error: {e}")
+            logger.error(f"Login error: {e}", exc_info=True)
             flash('An error occurred during login')
             return redirect(url_for('login'))
     
@@ -156,10 +209,11 @@ def login():
 def init_db():
     with app.app_context():
         try:
+            logger.info("Initializing database...")
             db.create_all()
             logger.info("Database tables created successfully")
         except Exception as e:
-            logger.error(f"Database initialization error: {e}")
+            logger.error(f"Database initialization error: {e}", exc_info=True)
 
 # Call database initialization
 init_db()
@@ -369,4 +423,4 @@ def delete_movie(movie_id):
 if __name__ == '__main__':
     # Use PORT environment variable for Render
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port, debug=True)

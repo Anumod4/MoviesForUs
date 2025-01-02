@@ -1,13 +1,11 @@
-# Virtual Environment
-venv/
-
-# Environment files
+# Environment and Secrets
 .env
 *.env
 .env.local
 .env.development
 .env.test
 .env.production
+secrets.json
 
 # Python
 __pycache__/
@@ -31,17 +29,18 @@ wheels/
 .installed.cfg
 *.egg
 
-# Logs
+# Logs and Debugging
 *.log
 app.log
+debug.log
 
-# Thumbnails and uploads
+# Thumbnails and Uploads
 static/uploads/
 static/thumbnails/
 !static/uploads/.gitkeep
 !static/thumbnails/.gitkeep
 
-# IDE and OS specific files
+# IDE and OS Specific
 .DS_Store
 .idea/
 .vscode/
@@ -49,9 +48,27 @@ static/thumbnails/
 *.swo
 Thumbs.db
 
-# Backup Files
+# Backup and Temporary Files
 *.bak
+*.tmp
+*.swp
 
 # Database
 instance/movies.db
 *.db
+
+# Sensitive Configuration
+*.pem
+*.key
+*.crt
+
+# Dependency Caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Miscellaneous
+.ipynb_checkpoints/
+.mypy_cache/
+.dmypy.json
+dmypy.json

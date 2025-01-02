@@ -123,22 +123,34 @@ login_manager.login_view = 'login'
 def safe_init_db():
     try:
         with app.app_context():
-            # Drop all existing tables first to ensure clean state
-            db.drop_all()
-            
-            # Create all tables
+            # Ensure all tables are created
             db.create_all()
             
-            print("Database tables created successfully.")
-            
-            # Optional: Add a check to verify table creation
+            # Check if the tables exist
             inspector = inspect(db.engine)
-            print("Created tables:", inspector.get_table_names())
+            tables = inspector.get_table_names()
+            print("Existing tables:", tables)
+            
+            # Verify specific tables
+            required_tables = ['users', 'movies']
+            missing_tables = [table for table in required_tables if table not in tables]
+            
+            if missing_tables:
+                print(f"Warning: Missing tables {missing_tables}")
+                # Force recreation of tables
+                db.drop_all()
+                db.create_all()
+                print("Forcibly recreated database tables")
+            
+            # Commit the session to ensure changes are saved
+            db.session.commit()
+            
+            print("Database tables created successfully.")
     except Exception as e:
-        print(f"Error initializing database: {e}")
+        print(f"Critical error initializing database: {e}")
         traceback.print_exc()
 
-# Call safe database initialization
+# Ensure database is initialized immediately
 safe_init_db()
 
 # Flask Configuration and Folder Setup

@@ -10,3 +10,5 @@ gunicorn==20.1.0
 opencv-python-headless==4.7.0.72
 aiven-client==2.16.0  # Aiven management client
 flask-caching==2.1.0
+ffmpeg-python==0.4.8
+python-ffmpeg==1.0.14

@@ -16,6 +16,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import inspect, create_engine, text
 import re
 import mimetypes
+import ffmpeg
+import tempfile
+import subprocess
 
 # Load environment variables
 load_dotenv()
@@ -331,16 +334,75 @@ def generate_thumbnail(video_path, output_path, size=(320, 240)):
         logging.error(f"Unexpected error generating thumbnail: {e}")
         return None
 
+def convert_video_to_mp4(input_path, output_path=None):
+    """
+    Convert video to MP4 format using FFmpeg
+    
+    Args:
+        input_path (str): Path to the input video file
+        output_path (str, optional): Path to save converted video. 
+                                     If None, generates a temporary file.
+    
+    Returns:
+        str: Path to the converted MP4 video
+    """
+    try:
+        # If no output path specified, create a temporary file
+        if output_path is None:
+            temp_file = tempfile.NamedTemporaryFile(
+                suffix='.mp4', 
+                prefix='converted_', 
+                delete=False
+            )
+            output_path = temp_file.name
+            temp_file.close()
+        
+        # FFmpeg conversion command
+        (
+            ffmpeg
+            .input(input_path)
+            .output(
+                output_path, 
+                vcodec='libx264',  # H.264 video codec
+                acodec='aac',      # AAC audio codec
+                loglevel='error'   # Suppress FFmpeg output
+            )
+            .overwrite_output()
+            .run(capture_stdout=True, capture_stderr=True)
+        )
+        
+        return output_path
+    
+    except ffmpeg.Error as e:
+        logging.error(f"FFmpeg conversion error: {e.stderr.decode()}")
+        raise ValueError(f"Video conversion failed: {e.stderr.decode()}")
+    except Exception as e:
+        logging.error(f"Unexpected error during video conversion: {e}")
+        raise
+
+def is_convertible_video(filename):
+    """
+    Check if the video format is convertible
+    
+    Args:
+        filename (str): Name of the video file
+    
+    Returns:
+        bool: True if convertible, False otherwise
+    """
+    convertible_extensions = [
+        '.mkv', '.avi', '.mov', '.webm', 
+        '.flv', '.wmv', '.m4v', '.mpg', 
+        '.mpeg', '.mp4'
+    ]
+    
+    file_ext = os.path.splitext(filename)[1].lower()
+    return file_ext in convertible_extensions
+
 @app.route('/stream/<filename>')
 def stream(filename):
     """
-    Enhanced video streaming with multiple error handling and format support
-    
-    Args:
-        filename (str): Name of the video file to stream
-    
-    Returns:
-        Flask Response or error page
+    Enhanced video streaming with MKV and multiple format support
     """
     try:
         # Secure filename and construct full path
@@ -353,45 +415,51 @@ def stream(filename):
             flash('The requested video could not be found.', 'danger')
             return redirect(url_for('index'))
         
-        # Validate file size and type
+        # Validate file size
         file_size = os.path.getsize(file_path)
         if file_size == 0:
             logging.error(f"Empty file detected: {file_path}")
             flash('The video file is empty or corrupted.', 'danger')
             return redirect(url_for('index'))
         
-        # Determine MIME type
-        mime_type = mimetypes.guess_type(file_path)[0]
-        supported_video_types = ['video/mp4', 'video/webm', 'video/ogg']
+        # Check if conversion is needed
+        converted_path = file_path
+        if is_convertible_video(safe_filename) and not safe_filename.lower().endswith('.mp4'):
+            try:
+                converted_path = convert_video_to_mp4(file_path)
+            except Exception as conv_error:
+                logging.error(f"Video conversion failed: {conv_error}")
+                flash('Could not convert video format.', 'danger')
+                return redirect(url_for('index'))
         
-        if not mime_type or mime_type not in supported_video_types:
-            logging.warning(f"Unsupported video type: {mime_type}")
-            flash('Unsupported video format.', 'warning')
-            return redirect(url_for('index'))
+        # Determine MIME type
+        mime_type = 'video/mp4'
         
         # Streaming logic with range support
         def generate():
-            with open(file_path, 'rb') as video_file:
+            with open(converted_path, 'rb') as video_file:
                 data = video_file.read(app.config.get('STREAM_CHUNK_SIZE', 1024 * 1024 * 20))
                 while data:
                     yield data
                     data = video_file.read(app.config.get('STREAM_CHUNK_SIZE', 1024 * 1024 * 20))
         
         # Stream response
-        return Response(
+        response = Response(
             generate(), 
             mimetype=mime_type,
             content_type=mime_type,
             headers={
                 'Content-Disposition': f'inline; filename="{safe_filename}"',
-                'Content-Length': str(file_size)
+                'Content-Length': str(os.path.getsize(converted_path))
             }
         )
+        
+        # Clean up temporary converted file if different from original
+        if converted_path != file_path:
+            response.call_on_close(lambda: os.unlink(converted_path))
+        
+        return response
     
-    except PermissionError:
-        logging.error(f"Permission denied accessing file: {file_path}")
-        flash('Permission denied accessing the video.', 'danger')
-        return redirect(url_for('index'))
     except Exception as e:
         logging.error(f"Unexpected streaming error: {e}")
         flash('An unexpected error occurred while streaming the video.', 'danger')

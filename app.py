@@ -12,7 +12,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import inspect, create_engine
+from sqlalchemy import inspect, create_engine, text
 
 # Load environment variables
 load_dotenv()
@@ -77,15 +77,14 @@ def configure_database():
         
         # Additional connection validation
         try:
-            # Test database connection outside of Flask context
-            from sqlalchemy import create_engine
+            # Test database connection using SQLAlchemy
+            from sqlalchemy import create_engine, text
             engine = create_engine(database_url, echo=False)
             
-            # Attempt to establish a connection
+            # Attempt to establish a connection and execute a simple query
             with engine.connect() as connection:
-                # Perform a simple query to test connection
-                result = connection.execute("SELECT 1")
-                result.close()
+                result = connection.execute(text("SELECT 1"))
+                result.fetchone()  # Explicitly fetch the result
             
             print("Database connection successful")
         except Exception as conn_error:

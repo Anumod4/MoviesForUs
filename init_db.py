@@ -1,11 +1,36 @@
 import os
 import sys
 import traceback
+from sqlalchemy import create_engine, text
 
 # Add the project directory to the Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from app import app, db, User, Movie
+
+def test_database_connection():
+    """
+    Test database connection and print detailed diagnostics
+    """
+    try:
+        # Get the database URL from the app configuration
+        database_url = app.config['SQLALCHEMY_DATABASE_URI']
+        print(f"Testing connection to: {database_url}")
+        
+        # Create an engine
+        engine = create_engine(database_url, echo=False)
+        
+        # Attempt to connect and execute a simple query
+        with engine.connect() as connection:
+            result = connection.execute(text("SELECT 1"))
+            fetched_result = result.fetchone()
+            print("Connection successful. Test query result:", fetched_result)
+        
+        return True
+    except Exception as e:
+        print(f"Database connection test failed: {e}")
+        traceback.print_exc()
+        return False
 
 def reset_database():
     """
@@ -59,14 +84,17 @@ def print_users():
 
 def main():
     print("Database Initialization and Diagnostic Tool")
-    print("1. Reset Database")
-    print("2. Print Users")
+    print("1. Test Database Connection")
+    print("2. Reset Database")
+    print("3. Print Users")
     
-    choice = input("Enter your choice (1/2): ")
+    choice = input("Enter your choice (1/2/3): ")
     
     if choice == '1':
-        reset_database()
+        test_database_connection()
     elif choice == '2':
+        reset_database()
+    elif choice == '3':
         print_users()
     else:
         print("Invalid choice.")

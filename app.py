@@ -117,6 +117,11 @@ app.config['SQLALCHEMY_ECHO'] = False  # Disable SQL logging in production
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max upload size
 app.config['UPLOAD_CHUNK_SIZE'] = 1024 * 1024 * 10  # 10MB chunks
 
+# Increase chunk size and add caching
+app.config['STREAM_CHUNK_SIZE'] = 1024 * 1024 * 20  # 20MB chunks
+app.config['CACHE_TYPE'] = 'FileSystemCache'
+app.config['CACHE_DIR'] = os.path.join(app.config['UPLOAD_FOLDER'], '.video_cache')
+
 # Initialize extensions
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
@@ -245,6 +250,21 @@ def configure_app_folders():
 
 # Configure upload and thumbnail folders
 UPLOAD_FOLDER, THUMBNAIL_FOLDER = configure_app_folders()
+
+# Ensure cache directory exists
+os.makedirs(app.config['CACHE_DIR'], exist_ok=True)
+
+# Import caching libraries
+from flask_caching import Cache
+from werkzeug.utils import secure_filename
+import hashlib
+
+# Initialize cache
+cache = Cache(app, config={
+    'CACHE_TYPE': 'filesystem',
+    'CACHE_DIR': app.config['CACHE_DIR'],
+    'CACHE_DEFAULT_TIMEOUT': 86400  # 24-hour cache
+})
 
 # Flask Configuration
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -443,6 +463,12 @@ def generate_thumbnail(video_path, thumbnail_path):
         print(f"Thumbnail generation failed: {e}")
         return False
 
+def generate_video_cache_key(filename):
+    """
+    Generate a unique cache key for the video
+    """
+    return hashlib.md5(filename.encode('utf-8')).hexdigest()
+
 # Add streaming headers for better performance
 def add_streaming_headers(response):
     """
@@ -453,16 +479,19 @@ def add_streaming_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
-# Modify stream route to use streaming headers
+# Modify stream route to use streaming headers and caching
 @app.route('/stream/<filename>')
 @login_required
 def stream(filename):
     """
-    Efficient video streaming route with performance optimization
+    Efficient video streaming route with 20MB chunks and caching
     """
     try:
+        # Secure the filename
+        safe_filename = secure_filename(filename)
+        
         # Construct full path to the video file
-        video_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        video_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
         
         # Check if file exists
         if not os.path.exists(video_path):
@@ -471,8 +500,22 @@ def stream(filename):
         # Get file size
         file_size = os.path.getsize(video_path)
         
-        # Default chunk size (64KB)
-        chunk_size = 64 * 1024
+        # Use configured chunk size
+        chunk_size = app.config['STREAM_CHUNK_SIZE']
+        
+        # Generate cache key
+        cache_key = generate_video_cache_key(safe_filename)
+        
+        # Check for cached video metadata
+        cached_metadata = cache.get(f"{cache_key}_metadata")
+        if not cached_metadata:
+            # Cache video metadata if not exists
+            cached_metadata = {
+                'filename': safe_filename,
+                'size': file_size,
+                'mime_type': 'video/mp4'
+            }
+            cache.set(f"{cache_key}_metadata", cached_metadata)
         
         # Handle range requests for partial content
         range_header = request.headers.get('Range', None)
@@ -494,14 +537,19 @@ def stream(filename):
             else:
                 length = file_size - byte1
             
-            # Open file and seek to the start position
-            data = None
-            with open(video_path, 'rb') as f:
-                f.seek(byte1)
-                data = f.read(length)
+            # Cached chunk retrieval
+            chunk_cache_key = f"{cache_key}_chunk_{byte1}_{length}"
+            cached_chunk = cache.get(chunk_cache_key)
+            
+            if not cached_chunk:
+                # Read and cache chunk if not in cache
+                with open(video_path, 'rb') as f:
+                    f.seek(byte1)
+                    cached_chunk = f.read(length)
+                    cache.set(chunk_cache_key, cached_chunk, timeout=3600)  # 1-hour cache
             
             # Prepare response with partial content
-            rv = Response(data, 
+            rv = Response(cached_chunk, 
                           206,  # Partial Content status
                           mimetype='video/mp4', 
                           content_type='video/mp4', 

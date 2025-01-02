@@ -12,6 +12,7 @@
                     preload="auto" 
                     width="100%" 
                     height="auto"
+                    data-setup='{"fluid": true, "playbackRates": [0.5, 1, 1.5, 2]}'
                 >
                     <source src="{{ url_for('stream', filename=filename) }}" type="video/mp4">
                     Your browser does not support the video tag.
@@ -93,8 +94,11 @@
 <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Initialize Video.js player
+    // Initialize Video.js player with advanced options
     const player = videojs('videoPlayer', {
+        html5: {
+            nativeTextTracks: false
+        },
         controlBar: {
             children: [
                 'playToggle',
@@ -105,7 +109,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 'progressControl',
                 'fullscreenToggle'
             ]
-        }
+        },
+        // Enable advanced streaming features
+        liveui: true,
+        preload: 'auto',
+        autoplay: false,
+        playbackRates: [0.5, 1, 1.5, 2]
     });
 
     const streamInfoOverlay = document.getElementById('streamInfoOverlay');
@@ -164,6 +173,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (navigator.connection) {
         navigator.connection.addEventListener('change', updateNetworkInfo);
     }
+
+    // Optional: Adaptive streaming logic
+    player.on('loadedmetadata', function() {
+        const videoWidth = player.videoWidth();
+        const videoHeight = player.videoHeight();
+        console.log(`Video Resolution: ${videoWidth}x${videoHeight}`);
+    });
 });
 </script>
 {% endblock %}

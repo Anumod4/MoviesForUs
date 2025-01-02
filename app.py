@@ -4,12 +4,16 @@ import traceback
 import logging
 import uuid
 import urllib.parse
+from dotenv import load_dotenv
 
 from flask import Flask, render_template, request, redirect, url_for, send_file, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
+
+# Load environment variables
+load_dotenv()
 
 # Optional import for OpenCV
 try:
@@ -23,50 +27,27 @@ from PIL import Image
 
 app = Flask(__name__)
 
-# Advanced Logging Configuration
+# Logging configuration
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stdout),  # Log to console
-        logging.FileHandler('app.log')      # Log to file
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('app.log')
     ]
 )
 logger = logging.getLogger(__name__)
 
-# Error Handler
-@app.errorhandler(Exception)
-def handle_exception(e):
-    # Log the error
-    logger.error("An error occurred:", exc_info=True)
-    
-    # Detailed error tracking
-    error_id = str(uuid.uuid4())
-    error_details = {
-        'error_id': error_id,
-        'error_type': type(e).__name__,
-        'error_message': str(e),
-        'traceback': traceback.format_exc()
-    }
-    
-    # Log full traceback
-    logger.error(f"Error ID: {error_id}")
-    logger.error(f"Full Traceback: {error_details['traceback']}")
-    
-    # Render error page or return error response
-    return render_template('error.html', error_details=error_details), 500
+# Neon PostgreSQL Configuration
+DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///movies.db')
 
-# Production Configuration
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'fallback_secret_key')
+# Ensure proper PostgreSQL connection string
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
-# PostgreSQL Connection Handling with Detailed Logging
-database_url = os.environ.get('DATABASE_URL', 'sqlite:///movies.db')
-logger.info(f"Database URL: {database_url}")
-
-if database_url.startswith('postgres://'):
-    database_url = database_url.replace('postgres://', 'postgresql://', 1)
-
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+# Flask Configuration
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback_secret_key')
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['THUMBNAIL_FOLDER'] = 'static/thumbnails'
@@ -76,17 +57,15 @@ app.config['MAX_CONTENT_LENGTH'] = None
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER']), exist_ok=True)
 os.makedirs(os.path.join(app.config['THUMBNAIL_FOLDER']), exist_ok=True)
 
-# Initialize extensions with error logging
-try:
-    db = SQLAlchemy(app)
-    bcrypt = Bcrypt(app)
-    login_manager = LoginManager()
-    login_manager.init_app(app)
-    login_manager.login_view = 'login'
-    logger.info("Extensions initialized successfully")
-except Exception as e:
-    logger.error(f"Error initializing extensions: {e}")
-    raise
+# Initialize extensions
+db = SQLAlchemy(app)
+bcrypt = Bcrypt(app)
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# Log database configuration
+logger.info(f"Database URL: {DATABASE_URL}")
 
 # Language list for dropdown
 LANGUAGES = [
@@ -205,7 +184,7 @@ def login():
     
     return render_template('login.html')
 
-# Database Initialization Function
+# Database Initialization Function with Improved Logging
 def init_db():
     with app.app_context():
         try:
@@ -214,6 +193,7 @@ def init_db():
             logger.info("Database tables created successfully")
         except Exception as e:
             logger.error(f"Database initialization error: {e}", exc_info=True)
+            raise
 
 # Call database initialization
 init_db()
@@ -420,7 +400,15 @@ def delete_movie(movie_id):
     flash('Movie deleted successfully!', 'success')
     return redirect(url_for('index'))
 
+# Optional: Supabase client for additional features
+try:
+    from supabase import create_client, Client
+    supabase: Client = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY'))
+    logger.info("Supabase client initialized successfully")
+except Exception as e:
+    logger.warning(f"Supabase client initialization failed: {e}")
+    supabase = None
+
 if __name__ == '__main__':
-    # Use PORT environment variable for Render
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)

@@ -120,7 +120,40 @@ app.config['UPLOAD_CHUNK_SIZE'] = 1024 * 1024 * 10  # 10MB chunks
 # Increase chunk size and add caching
 app.config['STREAM_CHUNK_SIZE'] = 1024 * 1024 * 20  # 20MB chunks
 app.config['CACHE_TYPE'] = 'FileSystemCache'
-app.config['CACHE_DIR'] = os.path.join(app.config['UPLOAD_FOLDER'], '.video_cache')
+
+def configure_app_folders():
+    """
+    Robust configuration of upload and thumbnail folders
+    """
+    # Base directory for the application
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Define upload and thumbnail folders
+    upload_folder = os.getenv('UPLOAD_FOLDER', os.path.join(base_dir, 'static', 'uploads'))
+    thumbnail_folder = os.getenv('THUMBNAIL_FOLDER', os.path.join(base_dir, 'static', 'thumbnails'))
+    
+    # Ensure folders exist
+    os.makedirs(upload_folder, exist_ok=True)
+    os.makedirs(thumbnail_folder, exist_ok=True)
+    
+    return upload_folder, thumbnail_folder
+
+# Configure upload and thumbnail folders
+UPLOAD_FOLDER, THUMBNAIL_FOLDER = configure_app_folders()
+
+# Ensure cache directory is created within upload folder
+CACHE_DIR = os.path.join(UPLOAD_FOLDER, '.video_cache')
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+# Flask Configuration
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['THUMBNAIL_FOLDER'] = THUMBNAIL_FOLDER
+app.config['CACHE_DIR'] = CACHE_DIR
+
+# Logging configuration details
+print(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
+print(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
+print(f"Cache Folder: {app.config['CACHE_DIR']}")
 
 # Initialize extensions
 db = SQLAlchemy(app)
@@ -189,71 +222,6 @@ def safe_init_db():
 # Ensure database is initialized immediately
 safe_init_db()
 
-# Flask Configuration and Folder Setup
-def configure_app_folders():
-    try:
-        # Define upload and thumbnail folder paths with Render-specific handling
-        base_dir = os.getenv('RENDER_WORKSPACE_DIR', os.path.dirname(os.path.abspath(__file__)))
-        
-        # Prioritize Render-specific paths
-        render_project_dir = '/opt/render/project/src'
-        
-        # Upload folder configuration with multiple fallback options
-        upload_folder_options = [
-            os.getenv('UPLOAD_FOLDER'),  # Explicitly set in environment
-            os.path.join(render_project_dir, 'static', 'uploads'),  # Render-specific path
-            os.path.join(base_dir, 'static', 'uploads'),  # Local development path
-            'static/uploads'  # Fallback path
-        ]
-        
-        # Thumbnail folder configuration with multiple fallback options
-        thumbnail_folder_options = [
-            os.getenv('THUMBNAIL_FOLDER'),  # Explicitly set in environment
-            os.path.join(render_project_dir, 'static', 'thumbnails'),  # Render-specific path
-            os.path.join(base_dir, 'static', 'thumbnails'),  # Local development path
-            'static/thumbnails'  # Fallback path
-        ]
-        
-        # Find first valid upload folder
-        upload_folder = next((
-            folder for folder in upload_folder_options 
-            if folder and os.path.exists(os.path.dirname(folder))
-        ), 'static/uploads')
-        
-        # Find first valid thumbnail folder
-        thumbnail_folder = next((
-            folder for folder in thumbnail_folder_options 
-            if folder and os.path.exists(os.path.dirname(folder))
-        ), 'static/thumbnails')
-        
-        # Ensure folders exist
-        os.makedirs(upload_folder, exist_ok=True)
-        os.makedirs(thumbnail_folder, exist_ok=True)
-        
-        # Logging for verification
-        print(f"Selected Upload folder: {upload_folder}")
-        print(f"Selected Thumbnail folder: {thumbnail_folder}")
-        
-        return upload_folder, thumbnail_folder
-    
-    except Exception as e:
-        print(f"Error configuring app folders: {e}")
-        
-        # Absolute fallback
-        upload_folder = 'static/uploads'
-        thumbnail_folder = 'static/thumbnails'
-        
-        os.makedirs(upload_folder, exist_ok=True)
-        os.makedirs(thumbnail_folder, exist_ok=True)
-        
-        return upload_folder, thumbnail_folder
-
-# Configure upload and thumbnail folders
-UPLOAD_FOLDER, THUMBNAIL_FOLDER = configure_app_folders()
-
-# Ensure cache directory exists
-os.makedirs(app.config['CACHE_DIR'], exist_ok=True)
-
 # Import caching libraries
 from flask_caching import Cache
 from werkzeug.utils import secure_filename
@@ -265,15 +233,6 @@ cache = Cache(app, config={
     'CACHE_DIR': app.config['CACHE_DIR'],
     'CACHE_DEFAULT_TIMEOUT': 86400  # 24-hour cache
 })
-
-# Flask Configuration
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['THUMBNAIL_FOLDER'] = THUMBNAIL_FOLDER
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback_secret_key')
-
-# Logging configuration details
-print(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
-print(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
 
 # User Model with improved error handling
 class User(UserMixin, db.Model):

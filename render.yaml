@@ -18,3 +18,4 @@ databases:
   - name: moviesforUs-db
     plan: free
     ipAllowList: []
+    maxConnections: 20

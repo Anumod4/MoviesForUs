@@ -1,23 +1,11 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container-fluid">
-    <div class="row mb-3">
-        <div class="col-12">
-            <a href="{{ url_for('index') }}" class="btn btn-outline-primary position-absolute top-0 start-0 m-3">
-                <i class="fas fa-arrow-left me-2"></i>Back to Home
-            </a>
-        </div>
-    </div>
-    <div class="row">
-        <div class="col-12">
-            <div class="video-container glassmorphic p-3">
-                <video 
-                    id="moviePlayer" 
-                    controls 
-                    class="w-100" 
-                    style="max-height: 80vh;"
-                >
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-10">
+            <div class="video-container">
+                <video id="videoPlayer" controls preload="metadata" class="w-100">
                     <source src="{{ url_for('stream', filename=filename) }}" type="video/mp4">
                     Your browser does not support the video tag.
                 </video>
@@ -25,6 +13,27 @@
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const videoPlayer = document.getElementById('videoPlayer');
+
+    // Improve video loading and streaming
+    videoPlayer.addEventListener('loadstart', function() {
+        console.log('Video loading started');
+    });
+
+    videoPlayer.addEventListener('canplay', function() {
+        console.log('Video can start playing');
+    });
+
+    // Optional: Add error handling
+    videoPlayer.addEventListener('error', function(e) {
+        console.error('Video loading error:', e);
+        alert('Error loading video. Please try again.');
+    });
+});
+</script>
 {% endblock %}
 
 {% block styles %}
@@ -36,7 +45,7 @@
     align-items: center;
 }
 
-#moviePlayer {
+#videoPlayer {
     box-shadow: 0 10px 25px rgba(0,0,0,0.1);
     border-radius: 12px;
 }
@@ -46,7 +55,6 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const player = document.getElementById('moviePlayer');
     const navbar = document.getElementById('main-navbar');
     
     // Hide navbar when page loads
@@ -54,8 +62,6 @@ document.addEventListener('DOMContentLoaded', function() {
         navbar.classList.add('hidden');
     }
     
-    player.focus();
-
     // Optional: Restore navbar when navigating away
     window.addEventListener('beforeunload', function() {
         if (navbar) {

@@ -6,13 +6,14 @@ import uuid
 import urllib.parse
 from dotenv import load_dotenv
 
-from flask import Flask, render_template, request, redirect, url_for, send_file, flash
+from flask import Flask, render_template, request, redirect, url_for, send_file, flash, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import inspect, create_engine, text
+import re
 
 # Load environment variables
 load_dotenv()
@@ -439,6 +440,166 @@ def generate_thumbnail(video_path, thumbnail_path):
         print(f"Thumbnail generation failed: {e}")
         return False
 
+@app.route('/stream/<filename>')
+@login_required
+def stream(filename):
+    """
+    Efficient video streaming route with support for range requests
+    """
+    try:
+        # Construct full path to the video file
+        video_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        
+        # Check if file exists
+        if not os.path.exists(video_path):
+            return "File not found", 404
+        
+        # Get file size
+        file_size = os.path.getsize(video_path)
+        
+        # Default chunk size (64KB)
+        chunk_size = 64 * 1024
+        
+        # Handle range requests for partial content
+        range_header = request.headers.get('Range', None)
+        
+        if range_header:
+            # Parse range header
+            byte1, byte2 = 0, None
+            match = re.search(r'(\d+)-(\d*)', range_header)
+            groups = match.groups()
+            
+            if groups[0]:
+                byte1 = int(groups[0])
+            if groups[1]:
+                byte2 = int(groups[1])
+            
+            # Adjust byte2 if not specified
+            if byte2 is not None:
+                length = byte2 + 1 - byte1
+            else:
+                length = file_size - byte1
+            
+            # Open file and seek to the start position
+            data = None
+            with open(video_path, 'rb') as f:
+                f.seek(byte1)
+                data = f.read(length)
+            
+            # Prepare response with partial content
+            rv = Response(data, 
+                          206,  # Partial Content status
+                          mimetype='video/mp4', 
+                          content_type='video/mp4', 
+                          direct_passthrough=True)
+            
+            rv.headers.add('Content-Range', f'bytes {byte1}-{byte1 + length - 1}/{file_size}')
+            rv.headers.add('Accept-Ranges', 'bytes')
+            rv.headers.add('Content-Length', str(length))
+            
+            return rv
+        
+        # If no range specified, stream entire file
+        def generate():
+            with open(video_path, 'rb') as f:
+                data = f.read(chunk_size)
+                while data:
+                    yield data
+                    data = f.read(chunk_size)
+        
+        return Response(generate(), 
+                        mimetype='video/mp4', 
+                        content_type='video/mp4',
+                        direct_passthrough=True)
+    
+    except Exception as e:
+        print(f"Error streaming video: {e}")
+        return "Error streaming video", 500
+
+@app.route('/play/<int:movie_id>')
+@login_required
+def play_movie(movie_id):
+    movie = Movie.query.get_or_404(movie_id)
+    return render_template('stream.html', filename=movie.filename)
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('index'))
+
+@app.route('/edit_movie/<int:movie_id>', methods=['GET', 'POST'])
+@login_required
+def edit_movie(movie_id):
+    movie = Movie.query.get_or_404(movie_id)
+    
+    # Ensure only the uploader can edit
+    if movie.user_id != current_user.id:
+        flash('You are not authorized to edit this movie.', 'danger')
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        # Update movie details
+        movie.title = request.form.get('title')
+        movie.language = request.form.get('language')
+        
+        # Handle new thumbnail upload
+        new_thumbnail = request.files.get('thumbnail')
+        if new_thumbnail and new_thumbnail.filename:
+            # Delete old thumbnail if exists
+            if movie.thumbnail:
+                old_thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail)
+                if os.path.exists(old_thumbnail_path):
+                    os.remove(old_thumbnail_path)
+            
+            # Save new thumbnail
+            original_thumb_filename = secure_filename(new_thumbnail.filename)
+            unique_thumb_filename = f"{uuid.uuid4()}_{original_thumb_filename}"
+            thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], unique_thumb_filename)
+            new_thumbnail.save(thumbnail_path)
+            movie.thumbnail = unique_thumb_filename
+        
+        db.session.commit()
+        flash('Movie details updated successfully!', 'success')
+        return redirect(url_for('index'))
+    
+    return render_template('edit_movie.html', 
+                           movie=movie, 
+                           languages=LANGUAGES)
+
+@app.route('/delete_movie/<int:movie_id>', methods=['POST'])
+@login_required
+def delete_movie(movie_id):
+    movie = Movie.query.get_or_404(movie_id)
+    
+    # Ensure only the uploader can delete
+    if movie.user_id != current_user.id:
+        flash('You are not authorized to delete this movie.', 'danger')
+        return redirect(url_for('index'))
+    
+    # Delete movie file
+    movie_path = os.path.join(app.config['UPLOAD_FOLDER'], movie.filename)
+    if os.path.exists(movie_path):
+        os.remove(movie_path)
+    
+    # Delete thumbnail if exists
+    if movie.thumbnail:
+        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail)
+        if os.path.exists(thumbnail_path):
+            os.remove(thumbnail_path)
+    
+    # Remove from database
+    db.session.delete(movie)
+    db.session.commit()
+    
+    flash('Movie deleted successfully!', 'success')
+    return redirect(url_for('index'))
+
+# Language list for dropdown
+LANGUAGES = [
+    'English', 'Hindi', 'Tamil', 'Malayalam'
+]
+
 @app.route('/')
 @login_required
 def index():
@@ -528,95 +689,6 @@ def upload():
             return redirect(url_for('index'))
     
     return render_template('upload.html', languages=LANGUAGES)
-
-@app.route('/stream/<filename>')
-@login_required
-def stream(filename):
-    return send_file(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-
-@app.route('/play/<int:movie_id>')
-@login_required
-def play_movie(movie_id):
-    movie = Movie.query.get_or_404(movie_id)
-    return render_template('stream.html', filename=movie.filename)
-
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('index'))
-
-@app.route('/edit_movie/<int:movie_id>', methods=['GET', 'POST'])
-@login_required
-def edit_movie(movie_id):
-    movie = Movie.query.get_or_404(movie_id)
-    
-    # Ensure only the uploader can edit
-    if movie.user_id != current_user.id:
-        flash('You are not authorized to edit this movie.', 'danger')
-        return redirect(url_for('index'))
-    
-    if request.method == 'POST':
-        # Update movie details
-        movie.title = request.form.get('title')
-        movie.language = request.form.get('language')
-        
-        # Handle new thumbnail upload
-        new_thumbnail = request.files.get('thumbnail')
-        if new_thumbnail and new_thumbnail.filename:
-            # Delete old thumbnail if exists
-            if movie.thumbnail:
-                old_thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail)
-                if os.path.exists(old_thumbnail_path):
-                    os.remove(old_thumbnail_path)
-            
-            # Save new thumbnail
-            original_thumb_filename = secure_filename(new_thumbnail.filename)
-            unique_thumb_filename = f"{uuid.uuid4()}_{original_thumb_filename}"
-            thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], unique_thumb_filename)
-            new_thumbnail.save(thumbnail_path)
-            movie.thumbnail = unique_thumb_filename
-        
-        db.session.commit()
-        flash('Movie details updated successfully!', 'success')
-        return redirect(url_for('index'))
-    
-    return render_template('edit_movie.html', 
-                           movie=movie, 
-                           languages=LANGUAGES)
-
-@app.route('/delete_movie/<int:movie_id>', methods=['POST'])
-@login_required
-def delete_movie(movie_id):
-    movie = Movie.query.get_or_404(movie_id)
-    
-    # Ensure only the uploader can delete
-    if movie.user_id != current_user.id:
-        flash('You are not authorized to delete this movie.', 'danger')
-        return redirect(url_for('index'))
-    
-    # Delete movie file
-    movie_path = os.path.join(app.config['UPLOAD_FOLDER'], movie.filename)
-    if os.path.exists(movie_path):
-        os.remove(movie_path)
-    
-    # Delete thumbnail if exists
-    if movie.thumbnail:
-        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail)
-        if os.path.exists(thumbnail_path):
-            os.remove(thumbnail_path)
-    
-    # Remove from database
-    db.session.delete(movie)
-    db.session.commit()
-    
-    flash('Movie deleted successfully!', 'success')
-    return redirect(url_for('index'))
-
-# Language list for dropdown
-LANGUAGES = [
-    'English', 'Hindi', 'Tamil', 'Malayalam'
-]
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))

@@ -98,4 +98,55 @@ document.addEventListener('DOMContentLoaded', function() {
             input.dispatchEvent(event);
         }
     });
+
+    // Video streaming and playback optimization
+    const videoElements = document.querySelectorAll('video');
+    
+    videoElements.forEach(video => {
+        // Preload video metadata
+        video.preload = 'metadata';
+        
+        // Improve buffering and playback
+        video.addEventListener('loadstart', function() {
+            console.log('Video loading started');
+        });
+        
+        video.addEventListener('canplay', function() {
+            console.log('Video can start playing');
+            // Optional: Attempt to preload more of the video
+            video.play().catch(e => {
+                console.warn('Autoplay prevented:', e);
+            });
+        });
+        
+        video.addEventListener('progress', function() {
+            // Log buffering progress
+            const buffered = video.buffered;
+            if (buffered.length > 0) {
+                const bufferedEnd = buffered.end(buffered.length - 1);
+                const duration = video.duration;
+                console.log(`Buffered: ${(bufferedEnd / duration * 100).toFixed(2)}%`);
+            }
+        });
+        
+        // Error handling
+        video.addEventListener('error', function(e) {
+            console.error('Video loading error:', e);
+            alert('Error loading video. Please try again or check your connection.');
+        });
+    });
+
+    // Optional: Bandwidth and performance tracking
+    if ('performance' in window) {
+        window.addEventListener('load', function() {
+            const connection = navigator.connection || 
+                               navigator.mozConnection || 
+                               navigator.webkitConnection;
+            
+            if (connection) {
+                console.log('Network Type:', connection.type);
+                console.log('Effective Bandwidth:', connection.downlink, 'Mbps');
+            }
+        });
+    }
 });

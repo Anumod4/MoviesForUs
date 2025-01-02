@@ -38,11 +38,42 @@ def reset_database():
     """
     try:
         with app.app_context():
+            # Get the database URL
+            database_url = app.config['SQLALCHEMY_DATABASE_URI']
+            
             # Drop all existing tables
             db.drop_all()
             
             # Create all tables
             db.create_all()
+            
+            # If using PostgreSQL, use raw SQL to ensure table creation
+            if 'postgresql' in database_url:
+                from sqlalchemy import text
+                with db.engine.connect() as connection:
+                    # Create Users table
+                    connection.execute(text("""
+                        CREATE TABLE IF NOT EXISTS users (
+                            id SERIAL PRIMARY KEY,
+                            username VARCHAR(80) UNIQUE NOT NULL,
+                            password_hash VARCHAR(255) NOT NULL
+                        )
+                    """))
+                    
+                    # Create Movies table
+                    connection.execute(text("""
+                        CREATE TABLE IF NOT EXISTS movies (
+                            id SERIAL PRIMARY KEY,
+                            title VARCHAR(100) NOT NULL,
+                            filename VARCHAR(200) NOT NULL,
+                            thumbnail VARCHAR(200),
+                            language VARCHAR(50) NOT NULL,
+                            user_id INTEGER NOT NULL REFERENCES users(id)
+                        )
+                    """))
+                    
+                    connection.commit()
+                    print("Tables created using raw SQL for PostgreSQL")
             
             # Verify table creation
             from sqlalchemy import inspect

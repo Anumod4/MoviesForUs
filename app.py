@@ -122,7 +122,10 @@ login_manager.login_view = 'login'
 def safe_init_db():
     try:
         with app.app_context():
-            # Ensure all tables are created
+            # Drop all existing tables first to ensure clean state
+            db.drop_all()
+            
+            # Create all tables
             db.create_all()
             
             # Check if the tables exist
@@ -136,10 +139,34 @@ def safe_init_db():
             
             if missing_tables:
                 print(f"Warning: Missing tables {missing_tables}")
-                # Force recreation of tables
-                db.drop_all()
-                db.create_all()
-                print("Forcibly recreated database tables")
+                
+                # If using PostgreSQL, use raw SQL to create tables
+                if 'postgresql' in str(db.engine.url):
+                    from sqlalchemy import text
+                    with db.engine.connect() as connection:
+                        # Create Users table
+                        connection.execute(text("""
+                            CREATE TABLE IF NOT EXISTS users (
+                                id SERIAL PRIMARY KEY,
+                                username VARCHAR(80) UNIQUE NOT NULL,
+                                password_hash VARCHAR(255) NOT NULL
+                            )
+                        """))
+                        
+                        # Create Movies table
+                        connection.execute(text("""
+                            CREATE TABLE IF NOT EXISTS movies (
+                                id SERIAL PRIMARY KEY,
+                                title VARCHAR(100) NOT NULL,
+                                filename VARCHAR(200) NOT NULL,
+                                thumbnail VARCHAR(200),
+                                language VARCHAR(50) NOT NULL,
+                                user_id INTEGER NOT NULL REFERENCES users(id)
+                            )
+                        """))
+                        
+                        connection.commit()
+                        print("Tables created using raw SQL")
             
             # Commit the session to ensure changes are saved
             db.session.commit()

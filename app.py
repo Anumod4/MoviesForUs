@@ -7,6 +7,7 @@ from werkzeug.utils import secure_filename
 import uuid
 import os
 import urllib.parse
+import logging
 
 # Optional import for OpenCV
 try:
@@ -19,6 +20,10 @@ except ImportError:
 from PIL import Image
 
 app = Flask(__name__)
+
+# Logging configuration
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Production Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'fallback_secret_key')
@@ -34,7 +39,7 @@ app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['THUMBNAIL_FOLDER'] = 'static/thumbnails'
 app.config['MAX_CONTENT_LENGTH'] = None  # Remove file size limit
 
-# Ensure upload and thumbnail directories exist
+# Create upload and thumbnail directories if they don't exist
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER']), exist_ok=True)
 os.makedirs(os.path.join(app.config['THUMBNAIL_FOLDER']), exist_ok=True)
 
@@ -49,12 +54,17 @@ LANGUAGES = [
     'English', 'Hindi', 'Tamil', 'Malayalam'
 ]
 
+# User Model with improved error handling
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(120), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
     movies = db.relationship('Movie', backref='uploader', lazy=True)
 
+    def __repr__(self):
+        return f'<User {self.username}>'
+
+# Movie Model
 class Movie(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(100), nullable=False)
@@ -62,6 +72,97 @@ class Movie(db.Model):
     thumbnail = db.Column(db.String(200), nullable=True)
     language = db.Column(db.String(50), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+@login_manager.user_loader
+def load_user(user_id):
+    try:
+        return User.query.get(int(user_id))
+    except Exception as e:
+        logger.error(f"Error loading user: {e}")
+        return None
+
+# Registration Route with Improved Error Handling
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        try:
+            username = request.form.get('username')
+            password = request.form.get('password')
+            
+            # Validate input
+            if not username or not password:
+                flash('Username and password are required')
+                return redirect(url_for('register'))
+            
+            # Check if user already exists
+            existing_user = User.query.filter_by(username=username).first()
+            if existing_user:
+                flash('Username already exists')
+                return redirect(url_for('register'))
+            
+            # Create new user
+            hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+            new_user = User(username=username, password_hash=hashed_password)
+            
+            # Add and commit to database
+            db.session.add(new_user)
+            db.session.commit()
+            
+            flash('Registration successful. Please log in.')
+            return redirect(url_for('login'))
+        
+        except Exception as e:
+            # Rollback in case of error
+            db.session.rollback()
+            logger.error(f"Registration error: {e}")
+            flash('An error occurred during registration')
+            return redirect(url_for('register'))
+    
+    return render_template('register.html')
+
+# Login Route with Improved Error Handling
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        try:
+            username = request.form.get('username')
+            password = request.form.get('password')
+            
+            # Validate input
+            if not username or not password:
+                flash('Username and password are required')
+                return redirect(url_for('login'))
+            
+            # Find user
+            user = User.query.filter_by(username=username).first()
+            
+            # Check password
+            if user and bcrypt.check_password_hash(user.password_hash, password):
+                login_user(user)
+                flash('Login successful')
+                return redirect(url_for('index'))
+            else:
+                flash('Invalid username or password')
+                return redirect(url_for('login'))
+        
+        except Exception as e:
+            logger.error(f"Login error: {e}")
+            flash('An error occurred during login')
+            return redirect(url_for('login'))
+    
+    return render_template('login.html')
+
+# Database Initialization Function
+def init_db():
+    with app.app_context():
+        try:
+            db.create_all()
+            logger.info("Database tables created successfully")
+        except Exception as e:
+            logger.error(f"Database initialization error: {e}")
+
+# Call database initialization
+init_db()
 
 def generate_thumbnail(video_path, thumbnail_path):
     """Generate thumbnail for video with fallback to PIL if cv2 is not available."""
@@ -90,10 +191,6 @@ def generate_thumbnail(video_path, thumbnail_path):
     except Exception as e:
         print(f"Thumbnail generation failed: {e}")
         return False
-
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
 
 @app.route('/')
 @login_required
@@ -125,35 +222,6 @@ def index():
                            languages=LANGUAGES, 
                            current_search=search_query, 
                            current_language=language_filter)
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
-        
-        if user and bcrypt.check_password_hash(user.password_hash, password):
-            login_user(user)
-            return redirect(url_for('index'))
-        flash('Invalid username or password')
-    return render_template('login.html')
-
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        if User.query.filter_by(username=username).first():
-            flash('Username already exists')
-            return redirect(url_for('register'))
-        
-        new_user = User(username=username, password_hash=bcrypt.generate_password_hash(password))
-        db.session.add(new_user)
-        db.session.commit()
-        return redirect(url_for('login'))
-    return render_template('register.html')
 
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required

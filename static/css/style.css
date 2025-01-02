@@ -10,6 +10,8 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    transition: all 0.2s ease-in-out;
+    will-change: transform, opacity;
 }
 
 body {
@@ -144,4 +146,67 @@ video:hover {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+/* Reduce screen flickering and improve UI stability */
+.modal {
+    will-change: transform, opacity;
+    backface-visibility: hidden;
+    perspective: 1000px;
+}
+
+.btn-delete {
+    transition: background-color 0.3s, color 0.3s;
+    will-change: background-color, color;
+}
+
+.movie-card {
+    transition: transform 0.3s, box-shadow 0.3s;
+    will-change: transform, box-shadow;
+}
+
+.movie-card:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Prevent layout shifts */
+img, video {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Smooth modal transitions */
+.modal.fade .modal-dialog {
+    transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+    transform: scale(0.8);
+    opacity: 0;
+}
+
+.modal.show .modal-dialog {
+    transform: scale(1);
+    opacity: 1;
+}
+
+/* Performance optimization for delete button */
+.btn-delete {
+    position: relative;
+    z-index: 1;
+    overflow: hidden;
+}
+
+.btn-delete::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.2);
+    transition: left 0.3s;
+    z-index: -1;
+}
+
+.btn-delete:hover::before {
+    left: 0;
 }

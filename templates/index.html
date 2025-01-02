@@ -71,32 +71,10 @@
                            title="Edit Movie">
                             <i class="fas fa-edit"></i>
                         </a>
-                        <button class="movie-card-action delete-action" 
-                                data-bs-toggle="modal" 
-                                data-bs-target="#deleteMovieModal{{ movie.id }}"
+                        <button class="btn-delete" data-movie-id="{{ movie.id }}" 
                                 title="Delete Movie">
                             <i class="fas fa-trash-alt"></i>
                         </button>
-                    </div>
-                    <!-- Delete Confirmation Modal -->
-                    <div class="modal fade" id="deleteMovieModal{{ movie.id }}" tabindex="-1" aria-hidden="true">
-                        <div class="modal-dialog modal-dialog-centered">
-                            <div class="modal-content">
-                                <div class="modal-header">
-                                    <h5 class="modal-title">Confirm Deletion</h5>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                </div>
-                                <div class="modal-body">
-                                    Are you sure you want to delete "{{ movie.title }}"?
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                    <form action="{{ url_for('delete_movie', movie_id=movie.id) }}" method="POST">
-                                        <button type="submit" class="btn btn-danger">Delete</button>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                     {% endif %}
                 </div>
@@ -123,6 +101,28 @@
         {% endif %}
     </div>
 </div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteMovieModal" tabindex="-1" aria-labelledby="deleteMovieModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deleteMovieModalLabel">Confirm Movie Deletion</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                Are you sure you want to delete this movie? This action cannot be undone.
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="deleteMovieForm" method="POST" class="d-inline">
+                    <button type="submit" class="btn btn-danger">Delete</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block styles %}
@@ -368,6 +368,7 @@ body {
 {% endblock %}
 
 {% block scripts %}
+{{ super() }}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.querySelector('.search-input');
@@ -388,6 +389,32 @@ document.addEventListener('DOMContentLoaded', function() {
     // Auto-submit language filter
     languageFilter.addEventListener('change', function() {
         form.submit();
+    });
+
+    const deleteButtons = document.querySelectorAll('.btn-delete');
+    const deleteMovieModal = document.getElementById('deleteMovieModal');
+    const deleteMovieForm = document.getElementById('deleteMovieForm');
+
+    deleteButtons.forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+            const movieId = this.getAttribute('data-movie-id');
+            const deleteUrl = `/delete_movie/${movieId}`;
+            
+            // Set form action dynamically
+            deleteMovieForm.action = deleteUrl;
+            
+            // Show modal with minimal reflow
+            const modal = new bootstrap.Modal(deleteMovieModal);
+            modal.show();
+        });
+    });
+
+    // Prevent multiple form submissions
+    deleteMovieForm.addEventListener('submit', function(e) {
+        const submitButton = this.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Deleting...';
     });
 });
 </script>

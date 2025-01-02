@@ -601,30 +601,44 @@ def edit_movie(movie_id):
 @app.route('/delete_movie/<int:movie_id>', methods=['POST'])
 @login_required
 def delete_movie(movie_id):
-    movie = Movie.query.get_or_404(movie_id)
-    
-    # Ensure only the uploader can delete
-    if movie.user_id != current_user.id:
-        flash('You are not authorized to delete this movie.', 'danger')
+    try:
+        # Find the movie
+        movie = Movie.query.get_or_404(movie_id)
+        
+        # Ensure only the uploader can delete
+        if movie.user_id != current_user.id:
+            flash('You are not authorized to delete this movie.', 'danger')
+            return redirect(url_for('index'))
+        
+        # Start a transaction to ensure atomic deletion
+        try:
+            # Delete movie file
+            movie_path = os.path.join(app.config['UPLOAD_FOLDER'], movie.filename)
+            if os.path.exists(movie_path):
+                os.remove(movie_path)
+            
+            # Delete thumbnail if exists
+            if movie.thumbnail:
+                thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail)
+                if os.path.exists(thumbnail_path):
+                    os.remove(thumbnail_path)
+            
+            # Remove from database
+            db.session.delete(movie)
+            db.session.commit()
+            
+            flash('Movie deleted successfully!', 'success')
+        except Exception as delete_error:
+            db.session.rollback()
+            print(f"Error during movie deletion: {delete_error}")
+            flash('Failed to delete movie. Please try again.', 'danger')
+        
         return redirect(url_for('index'))
     
-    # Delete movie file
-    movie_path = os.path.join(app.config['UPLOAD_FOLDER'], movie.filename)
-    if os.path.exists(movie_path):
-        os.remove(movie_path)
-    
-    # Delete thumbnail if exists
-    if movie.thumbnail:
-        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail)
-        if os.path.exists(thumbnail_path):
-            os.remove(thumbnail_path)
-    
-    # Remove from database
-    db.session.delete(movie)
-    db.session.commit()
-    
-    flash('Movie deleted successfully!', 'success')
-    return redirect(url_for('index'))
+    except Exception as e:
+        print(f"Unexpected error in delete_movie: {e}")
+        flash('An unexpected error occurred.', 'danger')
+        return redirect(url_for('index'))
 
 # Language list for dropdown
 LANGUAGES = [

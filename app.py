@@ -334,6 +334,38 @@ def generate_thumbnail(video_path, output_path, size=(320, 240)):
         logging.error(f"Unexpected error generating thumbnail: {e}")
         return None
 
+def check_ffmpeg_availability():
+    """
+    Check if FFmpeg is installed and available in system PATH
+    
+    Returns:
+        bool: True if FFmpeg is available, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ['ffmpeg', '-version'], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            text=True,
+            timeout=5
+        )
+        return result.returncode == 0
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+# Check FFmpeg availability during app initialization
+FFMPEG_AVAILABLE = check_ffmpeg_availability()
+if not FFMPEG_AVAILABLE:
+    logging.warning("""
+    FFmpeg is not installed or not in system PATH.
+    Video conversion will be disabled.
+    
+    Installation instructions:
+    - macOS: brew install ffmpeg
+    - Ubuntu/Debian: sudo apt-get install ffmpeg
+    - Windows: Download from https://ffmpeg.org/download.html
+    """)
+
 def convert_video_to_mp4(input_path, output_path=None):
     """
     Convert video to MP4 format using FFmpeg
@@ -346,6 +378,11 @@ def convert_video_to_mp4(input_path, output_path=None):
     Returns:
         str: Path to the converted MP4 video
     """
+    # Check FFmpeg availability before conversion
+    if not FFMPEG_AVAILABLE:
+        logging.error("FFmpeg is not available. Skipping video conversion.")
+        return input_path
+    
     try:
         # If no output path specified, create a temporary file
         if output_path is None:
@@ -357,23 +394,24 @@ def convert_video_to_mp4(input_path, output_path=None):
             output_path = temp_file.name
             temp_file.close()
         
-        # FFmpeg conversion command
-        (
-            ffmpeg
-            .input(input_path)
-            .output(
-                output_path, 
-                vcodec='libx264',  # H.264 video codec
-                acodec='aac',      # AAC audio codec
-                loglevel='error'   # Suppress FFmpeg output
-            )
-            .overwrite_output()
-            .run(capture_stdout=True, capture_stderr=True)
+        # FFmpeg conversion command using subprocess for broader compatibility
+        subprocess.run(
+            [
+                'ffmpeg', 
+                '-i', input_path, 
+                '-c:v', 'libx264',  # H.264 video codec
+                '-c:a', 'aac',       # AAC audio codec
+                '-loglevel', 'error', # Suppress FFmpeg output
+                '-y',                 # Overwrite output file
+                output_path
+            ],
+            check=True,
+            capture_output=True
         )
         
         return output_path
     
-    except ffmpeg.Error as e:
+    except subprocess.CalledProcessError as e:
         logging.error(f"FFmpeg conversion error: {e.stderr.decode()}")
         raise ValueError(f"Video conversion failed: {e.stderr.decode()}")
     except Exception as e:

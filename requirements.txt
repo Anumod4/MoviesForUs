@@ -10,5 +10,12 @@ gunicorn==20.1.0
 opencv-python-headless==4.7.0.72
 aiven-client==2.16.0  # Aiven management client
 flask-caching==2.1.0
-ffmpeg-python==0.4.8
+
+# Video Conversion Dependencies
+ffmpeg-python==0.2.0
 python-ffmpeg==1.0.14
+
+# Note: Requires system-level FFmpeg installation
+# macOS: brew install ffmpeg
+# Ubuntu/Debian: sudo apt-get install ffmpeg
+# Windows: Download from https://ffmpeg.org/download.html

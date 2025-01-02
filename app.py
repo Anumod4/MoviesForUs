@@ -12,7 +12,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from flask_bcrypt import Bcrypt
 from werkzeug.utils import secure_filename
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import inspect
+from sqlalchemy import inspect, create_engine
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +40,58 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Database Configuration with Enhanced Error Handling
+def configure_database():
+    try:
+        # Validate database configuration
+        if not all([
+            os.getenv('AIVEN_DB_HOST'), 
+            os.getenv('AIVEN_DB_PORT'), 
+            os.getenv('AIVEN_DB_NAME'), 
+            os.getenv('AIVEN_DB_USER'), 
+            os.getenv('AIVEN_DB_PASSWORD')
+        ]):
+            logger.warning("Incomplete Aiven DB configuration. Falling back to SQLite.")
+            return 'sqlite:///movies.db'
+        
+        # Construct Database URL with SSL support
+        database_url = (
+            f"postgresql://{os.getenv('AIVEN_DB_USER')}:"
+            f"{os.getenv('AIVEN_DB_PASSWORD')}@"
+            f"{os.getenv('AIVEN_DB_HOST')}:"
+            f"{os.getenv('AIVEN_DB_PORT')}/"
+            f"{os.getenv('AIVEN_DB_NAME')}?sslmode=require"
+        )
+        
+        # Additional connection validation
+        try:
+            # Test database connection
+            engine = create_engine(database_url, echo=True)
+            connection = engine.connect()
+            connection.close()
+            logger.info("Database connection successful")
+        except Exception as conn_error:
+            logger.error(f"Database connection test failed: {conn_error}", exc_info=True)
+            logger.warning("Falling back to SQLite due to connection error")
+            return 'sqlite:///movies.db'
+        
+        return database_url
+    
+    except Exception as e:
+        logger.error(f"Error configuring database: {e}", exc_info=True)
+        return 'sqlite:///movies.db'
+
+# Set Database URL
+DATABASE_URL = configure_database()
+
+# Log database configuration
+logger.info(f"Final Database URL: {DATABASE_URL}")
+
+# Configure SQLAlchemy
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ECHO'] = True  # Enable SQL logging
+
 # Aiven PostgreSQL Configuration
 AIVEN_DB_HOST = os.getenv('AIVEN_DB_HOST', 'localhost')
 AIVEN_DB_PORT = os.getenv('AIVEN_DB_PORT', '5432')
@@ -57,45 +109,6 @@ logger.info(f"User: {AIVEN_DB_USER}")
 logger.info(f"Password: {'*' * len(AIVEN_DB_PASSWORD) if AIVEN_DB_PASSWORD else 'Not Set'}")
 logger.info(f"SSL Cert Path: {AIVEN_SSL_CERT_PATH}")
 
-# Construct Database URL with SSL support
-DATABASE_URL = os.getenv('DATABASE_URL', 
-    f'postgresql://{AIVEN_DB_USER}:{AIVEN_DB_PASSWORD}@{AIVEN_DB_HOST}:{AIVEN_DB_PORT}/{AIVEN_DB_NAME}'
-)
-
-# SSL Configuration for Aiven
-if AIVEN_SSL_CERT_PATH and os.path.exists(AIVEN_SSL_CERT_PATH):
-    DATABASE_URL += '?sslmode=verify-full&sslcert=' + AIVEN_SSL_CERT_PATH
-else:
-    # Simplified SSL mode
-    DATABASE_URL = DATABASE_URL.split('?')[0] + '?sslmode=require'
-
-# Fallback to SQLite if Aiven configuration is incomplete
-try:
-    if not all([AIVEN_DB_HOST, AIVEN_DB_PORT, AIVEN_DB_NAME, AIVEN_DB_USER, AIVEN_DB_PASSWORD]):
-        logger.warning("Incomplete Aiven DB configuration. Attempting to parse DATABASE_URL.")
-        parsed_url = urllib.parse.urlparse(DATABASE_URL)
-        if not all([parsed_url.hostname, parsed_url.port, parsed_url.path, parsed_url.username, parsed_url.password]):
-            logger.error("Both Aiven configuration and DATABASE_URL are incomplete. Falling back to SQLite.")
-            DATABASE_URL = 'sqlite:///movies.db'
-except Exception as e:
-    logger.error(f"Error parsing database configuration: {e}. Falling back to SQLite.")
-    DATABASE_URL = 'sqlite:///movies.db'
-
-# Log the final database URL for debugging
-logger.info(f"Final Database URL: {DATABASE_URL}")
-
-# Flask Configuration
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback_secret_key')
-app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['THUMBNAIL_FOLDER'] = 'static/thumbnails'
-app.config['MAX_CONTENT_LENGTH'] = None
-
-# Create directories
-os.makedirs(os.path.join(app.config['UPLOAD_FOLDER']), exist_ok=True)
-os.makedirs(os.path.join(app.config['THUMBNAIL_FOLDER']), exist_ok=True)
-
 # Initialize extensions
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
@@ -103,8 +116,9 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# Log database configuration
-logger.info(f"Database URL: {DATABASE_URL}")
+# Create directories
+os.makedirs(os.path.join(app.config['UPLOAD_FOLDER']), exist_ok=True)
+os.makedirs(os.path.join(app.config['THUMBNAIL_FOLDER']), exist_ok=True)
 
 # Database Initialization Function with Robust Error Handling
 def init_db():
@@ -113,9 +127,13 @@ def init_db():
         with app.app_context():
             logger.info("Initializing database...")
             
-            # Drop all existing tables (use with caution in production)
-            # Uncomment only for debugging or initial setup
-            # db.drop_all()
+            # Forcibly drop and recreate tables (use with caution in production)
+            try:
+                logger.warning("Attempting to drop existing tables...")
+                db.drop_all()
+                logger.info("Existing tables dropped successfully")
+            except Exception as drop_error:
+                logger.error(f"Error dropping tables: {drop_error}", exc_info=True)
             
             # Create tables if they don't exist
             logger.info("Attempting to create database tables...")
@@ -129,24 +147,73 @@ def init_db():
                 logger.error(f"Full error traceback: {traceback.format_exc()}")
                 raise
             
-            # Verify table creation
+            # Verify table creation with more detailed diagnostics
             try:
                 inspector = inspect(db.engine)
-                tables = inspector.get_table_names()
-                logger.info(f"Existing tables in database: {tables}")
+                
+                # Get all schemas
+                schemas = inspector.get_schema_names()
+                logger.info(f"Available schemas: {schemas}")
+                
+                # Get all tables across all schemas
+                all_tables = []
+                for schema in schemas:
+                    try:
+                        schema_tables = inspector.get_table_names(schema=schema)
+                        all_tables.extend([f"{schema}.{table}" for table in schema_tables])
+                    except Exception as schema_error:
+                        logger.error(f"Error getting tables for schema {schema}: {schema_error}")
+                
+                logger.info(f"All tables found: {all_tables}")
                 
                 # Verify specific tables exist
                 required_tables = ['users', 'movies']
+                
+                # Attempt to create tables manually if not found
+                for table in required_tables:
+                    try:
+                        # Explicitly check table existence
+                        table_exists = db.engine.dialect.has_table(db.engine, table)
+                        
+                        if not table_exists:
+                            logger.warning(f"Table {table} does not exist. Attempting manual creation...")
+                            
+                            # Depending on your model, you might need to adjust this
+                            if table == 'users':
+                                db.session.execute('''
+                                    CREATE TABLE IF NOT EXISTS users (
+                                        id SERIAL PRIMARY KEY,
+                                        username VARCHAR(80) UNIQUE NOT NULL,
+                                        password_hash VARCHAR(255) NOT NULL
+                                    )
+                                ''')
+                            elif table == 'movies':
+                                db.session.execute('''
+                                    CREATE TABLE IF NOT EXISTS movies (
+                                        id SERIAL PRIMARY KEY,
+                                        title VARCHAR(100) NOT NULL,
+                                        filename VARCHAR(200) NOT NULL,
+                                        thumbnail VARCHAR(200),
+                                        language VARCHAR(50) NOT NULL,
+                                        user_id INTEGER NOT NULL
+                                    )
+                                ''')
+                            
+                            db.session.commit()
+                            logger.info(f"Manually created table {table}")
+                    
+                    except Exception as table_error:
+                        logger.error(f"Error creating table {table}: {table_error}", exc_info=True)
+                
+                # Final verification
+                tables = inspector.get_table_names()
+                logger.info(f"Existing tables in database: {tables}")
+                
                 missing_tables = [table for table in required_tables if table not in tables]
                 
                 if missing_tables:
-                    logger.error(f"Missing tables: {missing_tables}")
+                    logger.error(f"Still missing tables: {missing_tables}")
                     raise ValueError(f"Database is missing critical tables: {missing_tables}")
-                
-                # Additional table schema verification
-                for table in required_tables:
-                    columns = [col['name'] for col in inspector.get_columns(table)]
-                    logger.info(f"Columns in {table} table: {columns}")
             
             except Exception as verify_error:
                 logger.error(f"Table verification error: {verify_error}", exc_info=True)

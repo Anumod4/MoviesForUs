@@ -38,12 +38,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Neon PostgreSQL Configuration
-DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///movies.db')
+# Oracle Cloud PostgreSQL Configuration
+try:
+    import oracledb
+    # Optional: Configure Oracle client library path if needed
+    # oracledb.init_oracle_client(lib_dir="/path/to/oracle/instantclient")
+except ImportError:
+    logger.warning("Oracle database library not found. Using fallback database.")
 
-# Ensure proper PostgreSQL connection string
-if DATABASE_URL.startswith('postgres://'):
-    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+# Database URL Configuration
+ORACLE_DB_HOST = os.getenv('ORACLE_DB_HOST', 'localhost')
+ORACLE_DB_PORT = os.getenv('ORACLE_DB_PORT', '1521')
+ORACLE_DB_SERVICE = os.getenv('ORACLE_DB_SERVICE', 'XEPDB1')
+ORACLE_DB_USER = os.getenv('ORACLE_DB_USER')
+ORACLE_DB_PASSWORD = os.getenv('ORACLE_DB_PASSWORD')
+
+# Construct Database URL
+DATABASE_URL = os.getenv('DATABASE_URL', f'oracle+oracledb://{ORACLE_DB_USER}:{ORACLE_DB_PASSWORD}@{ORACLE_DB_HOST}:{ORACLE_DB_PORT}/{ORACLE_DB_SERVICE}')
+
+# Fallback to SQLite if Oracle configuration is incomplete
+if not all([ORACLE_DB_HOST, ORACLE_DB_PORT, ORACLE_DB_SERVICE, ORACLE_DB_USER, ORACLE_DB_PASSWORD]):
+    logger.warning("Incomplete Oracle DB configuration. Falling back to SQLite.")
+    DATABASE_URL = 'sqlite:///movies.db'
 
 # Flask Configuration
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback_secret_key')
@@ -66,6 +82,28 @@ login_manager.login_view = 'login'
 
 # Log database configuration
 logger.info(f"Database URL: {DATABASE_URL}")
+
+# Error Handler
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Log the error
+    logger.error("An error occurred:", exc_info=True)
+    
+    # Detailed error tracking
+    error_id = str(uuid.uuid4())
+    error_details = {
+        'error_id': error_id,
+        'error_type': type(e).__name__,
+        'error_message': str(e),
+        'traceback': traceback.format_exc()
+    }
+    
+    # Log full traceback
+    logger.error(f"Error ID: {error_id}")
+    logger.error(f"Full Traceback: {error_details['traceback']}")
+    
+    # Render error page or return error response
+    return render_template('error.html', error_details=error_details), 500
 
 # Language list for dropdown
 LANGUAGES = [
@@ -399,15 +437,6 @@ def delete_movie(movie_id):
     
     flash('Movie deleted successfully!', 'success')
     return redirect(url_for('index'))
-
-# Optional: Supabase client for additional features
-try:
-    from supabase import create_client, Client
-    supabase: Client = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY'))
-    logger.info("Supabase client initialized successfully")
-except Exception as e:
-    logger.warning(f"Supabase client initialization failed: {e}")
-    supabase = None
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))

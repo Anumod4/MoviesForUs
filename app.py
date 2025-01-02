@@ -113,6 +113,10 @@ app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ECHO'] = False  # Disable SQL logging in production
 
+# Increase upload limits
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max upload size
+app.config['UPLOAD_CHUNK_SIZE'] = 1024 * 1024 * 10  # 10MB chunks
+
 # Initialize extensions
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
@@ -246,7 +250,6 @@ UPLOAD_FOLDER, THUMBNAIL_FOLDER = configure_app_folders()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['THUMBNAIL_FOLDER'] = THUMBNAIL_FOLDER
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'fallback_secret_key')
-app.config['MAX_CONTENT_LENGTH'] = None  # Remove file upload size limit
 
 # Logging configuration details
 print(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")

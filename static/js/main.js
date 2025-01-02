@@ -149,4 +149,52 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Upload Progress Tracking
+    const uploadForms = document.querySelectorAll('form[enctype="multipart/form-data"]');
+    
+    uploadForms.forEach(form => {
+        form.addEventListener('submit', function(e) {
+            const uploadButton = form.querySelector('button[type="submit"]');
+            const progressContainer = form.querySelector('.upload-progress-container');
+            const progressBar = form.querySelector('.upload-progress-bar');
+            
+            if (progressContainer && progressBar) {
+                progressContainer.style.display = 'block';
+                uploadButton.disabled = true;
+                
+                const xhr = new XMLHttpRequest();
+                
+                xhr.upload.onprogress = function(event) {
+                    if (event.lengthComputable) {
+                        const percentComplete = Math.round((event.loaded / event.total) * 100);
+                        progressBar.style.width = `${percentComplete}%`;
+                        progressBar.textContent = `${percentComplete}%`;
+                    }
+                };
+                
+                xhr.onload = function() {
+                    uploadButton.disabled = false;
+                    
+                    if (xhr.status === 200) {
+                        progressBar.classList.remove('bg-warning');
+                        progressBar.classList.add('bg-success');
+                        progressBar.style.width = '100%';
+                        progressBar.textContent = 'Upload Complete';
+                    } else {
+                        progressBar.classList.remove('bg-warning');
+                        progressBar.classList.add('bg-danger');
+                        progressBar.textContent = 'Upload Failed';
+                    }
+                };
+                
+                xhr.onerror = function() {
+                    uploadButton.disabled = false;
+                    progressBar.classList.remove('bg-warning');
+                    progressBar.classList.add('bg-danger');
+                    progressBar.textContent = 'Network Error';
+                };
+            }
+        });
+    });
 });

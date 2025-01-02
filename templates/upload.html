@@ -1,65 +1,56 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container">
+<div class="container mt-4">
     <div class="row justify-content-center">
         <div class="col-md-8">
-            <div class="card glassmorphic">
-                <div class="card-header">
-                    <h2 class="text-center mb-4">Upload Movie to MoviesForUs</h2>
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">Upload Movie</h4>
                 </div>
                 <div class="card-body">
-                    <form action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data">
+                    <form id="uploadForm" action="{{ url_for('upload') }}" method="POST" enctype="multipart/form-data">
                         <div class="mb-3">
-                            <label for="title" class="form-label">Movie Title</label>
-                            <input type="text" class="form-control" id="title" name="title" required>
+                            <label for="movieFile" class="form-label">Movie File</label>
+                            <input type="file" class="form-control" id="movieFile" name="movie" accept="video/*" required>
                         </div>
-                        
                         <div class="mb-3">
-                            <label for="language" class="form-label">Language</label>
-                            <select class="form-select" id="language" name="language" required>
+                            <label for="movieTitle" class="form-label">Movie Title</label>
+                            <input type="text" class="form-control" id="movieTitle" name="title" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="movieLanguage" class="form-label">Language</label>
+                            <select class="form-select" id="movieLanguage" name="language" required>
                                 {% for lang in languages %}
-                                    <option value="{{ lang }}">{{ lang }}</option>
+                                <option value="{{ lang }}">{{ lang }}</option>
                                 {% endfor %}
                             </select>
                         </div>
-                        
                         <div class="mb-3">
-                            <label for="movie" class="form-label">Movie File</label>
-                            <input 
-                                type="file" 
-                                class="form-control" 
-                                id="movie" 
-                                name="movie" 
-                                accept="video/*" 
-                                required
-                            >
-                            <div class="form-text">
-                                <i class="fas fa-info-circle me-2"></i>
-                                Supports all video formats. No file size limit.
+                            <label for="movieThumbnail" class="form-label">Thumbnail (Optional)</label>
+                            <input type="file" class="form-control" id="movieThumbnail" name="thumbnail" accept="image/*">
+                        </div>
+                        
+                        <!-- Upload Progress Bar -->
+                        <div id="uploadProgressContainer" class="mb-3" style="display: none;">
+                            <div class="progress">
+                                <div 
+                                    id="uploadProgressBar" 
+                                    class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                                    role="progressbar" 
+                                    style="width: 0%"
+                                    aria-valuenow="0" 
+                                    aria-valuemin="0" 
+                                    aria-valuemax="100"
+                                >
+                                    0%
+                                </div>
                             </div>
                         </div>
                         
-                        <div class="mb-3">
-                            <label for="thumbnail" class="form-label">Custom Thumbnail (Optional)</label>
-                            <input 
-                                type="file" 
-                                class="form-control" 
-                                id="thumbnail" 
-                                name="thumbnail" 
-                                accept="image/*"
-                            >
-                            <div class="form-text">
-                                <i class="fas fa-image me-2"></i>
-                                Upload a custom thumbnail for your movie
-                            </div>
-                        </div>
-                        
-                        <div class="d-grid">
-                            <button type="submit" class="btn btn-primary">
-                                <i class="fas fa-upload me-2"></i>Upload Movie
-                            </button>
-                        </div>
+                        <button type="submit" class="btn btn-primary" id="uploadButton">
+                            <i class="fas fa-upload me-2"></i>Upload Movie
+                        </button>
                     </form>
                 </div>
             </div>
@@ -68,50 +59,67 @@
 </div>
 {% endblock %}
 
-{% block styles %}
-{{ super() }}
-<style>
-.form-control, .form-select {
-    background-color: var(--bg-secondary);
-    color: var(--text-primary);
-    border-color: var(--accent-color);
-}
-
-.form-text {
-    color: var(--text-secondary);
-}
-</style>
-{% endblock %}
-
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const form = document.querySelector('form');
-    const movieInput = document.getElementById('movie');
-    const thumbnailInput = document.getElementById('thumbnail');
-    
-    // Optional: Add file preview and validation
-    function previewFile(input, previewType) {
-        const file = input.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                if (previewType === 'video') {
-                    // Optional: Video preview logic
-                } else if (previewType === 'image') {
-                    // Optional: Image preview logic
-                }
-            };
-            reader.readAsDataURL(file);
-        }
-    }
-    
-    movieInput.addEventListener('change', function() {
-        previewFile(this, 'video');
-    });
-    
-    thumbnailInput.addEventListener('change', function() {
-        previewFile(this, 'image');
+    const uploadForm = document.getElementById('uploadForm');
+    const uploadProgressContainer = document.getElementById('uploadProgressContainer');
+    const uploadProgressBar = document.getElementById('uploadProgressBar');
+    const uploadButton = document.getElementById('uploadButton');
+    const movieFileInput = document.getElementById('movieFile');
+
+    uploadForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(uploadForm);
+        const xhr = new XMLHttpRequest();
+
+        // Show progress container
+        uploadProgressContainer.style.display = 'block';
+        uploadButton.disabled = true;
+        uploadButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Uploading...';
+
+        xhr.upload.onprogress = function(event) {
+            if (event.lengthComputable) {
+                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                uploadProgressBar.style.width = `${percentComplete}%`;
+                uploadProgressBar.setAttribute('aria-valuenow', percentComplete);
+                uploadProgressBar.textContent = `${percentComplete}%`;
+            }
+        };
+
+        xhr.onload = function() {
+            uploadButton.disabled = false;
+            uploadButton.innerHTML = '<i class="fas fa-upload me-2"></i>Upload Movie';
+
+            if (xhr.status === 200) {
+                // Successful upload
+                uploadProgressBar.classList.remove('bg-success');
+                uploadProgressBar.classList.add('bg-success');
+                uploadProgressBar.style.width = '100%';
+                uploadProgressBar.textContent = '100%';
+                
+                // Optional: Redirect or show success message
+                window.location.href = "{{ url_for('index') }}";
+            } else {
+                // Upload failed
+                uploadProgressBar.classList.remove('bg-success');
+                uploadProgressBar.classList.add('bg-danger');
+                uploadProgressBar.textContent = 'Upload Failed';
+            }
+        };
+
+        xhr.onerror = function() {
+            uploadButton.disabled = false;
+            uploadButton.innerHTML = '<i class="fas fa-upload me-2"></i>Upload Movie';
+            
+            uploadProgressBar.classList.remove('bg-success');
+            uploadProgressBar.classList.add('bg-danger');
+            uploadProgressBar.textContent = 'Network Error';
+        };
+
+        xhr.open('POST', uploadForm.action, true);
+        xhr.send(formData);
     });
 });
 </script>

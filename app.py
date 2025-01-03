@@ -176,6 +176,8 @@ try:
 except Exception as config_error:
     logging.critical(f"FATAL Upload Folder Configuration Error: {config_error}")
     logging.critical(traceback.format_exc())
+    # In a real-world scenario, you might want to have a fallback or emergency shutdown
+    raise
 
 # Verify configuration at startup
 logging.info(f"FINAL UPLOAD_FOLDER: {app.config.get('UPLOAD_FOLDER', 'NOT SET')}")
@@ -1378,8 +1380,13 @@ def upload():
                     try:
                         # Generate unique thumbnail filename
                         thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb_{uuid.uuid4().hex[:8]}.jpg"
-                        thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
-                        static_thumbnail_path = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails', thumbnail_filename)
+                        
+                        # Use absolute paths for thumbnails
+                        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
+                        static_thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
+                        
+                        # Ensure thumbnail directories exist
+                        os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
                         
                         # Attempt thumbnail generation
                         if FFMPEG_AVAILABLE:
@@ -1388,8 +1395,10 @@ def upload():
                                 ffmpeg_cmd = [
                                     'ffmpeg', 
                                     '-i', file_path,  # Input video
-                                    '-vf', 'thumbnail,scale=320:240',  # Select thumbnail and resize
-                                    '-frames:v', '1',  # Only one frame
+                                    '-ss', '00:00:01',  # Seek to 1 second
+                                    '-vframes', '1',  # Extract 1 frame
+                                    '-vf', 'scale=320:240',  # Resize
+                                    '-y',  # Overwrite output file
                                     thumbnail_path
                                 ]
                                 
@@ -1397,27 +1406,51 @@ def upload():
                                 result = subprocess.run(
                                     ffmpeg_cmd, 
                                     capture_output=True, 
-                                    text=True, 
-                                    check=True
+                                    text=True
                                 )
                                 
-                                # Verify thumbnail was created
-                                if os.path.exists(thumbnail_path):
-                                    # Copy to static folder
-                                    shutil.copy2(thumbnail_path, static_thumbnail_path)
-                                    logging.info(f"Thumbnail generated: {thumbnail_filename}")
+                                if result.returncode == 0 and os.path.exists(thumbnail_path):
+                                    logging.info(f"Thumbnail generated successfully: {thumbnail_filename}")
                                 else:
-                                    logging.error("Thumbnail file not created by FFmpeg")
+                                    logging.error(f"FFmpeg failed: {result.stderr}")
                                     thumbnail_filename = None
                             
-                            except subprocess.CalledProcessError as ffmpeg_error:
+                            except Exception as ffmpeg_error:
                                 logging.error(f"FFmpeg thumbnail error: {ffmpeg_error}")
-                                logging.error(f"FFmpeg STDERR: {ffmpeg_error.stderr}")
                                 thumbnail_filename = None
-                        else:
-                            logging.warning("FFmpeg not available. Skipping thumbnail generation.")
-                            thumbnail_filename = None
-                    
+                        
+                        # Fallback to OpenCV if FFmpeg fails
+                        if thumbnail_filename is None:
+                            try:
+                                import cv2
+                                cap = cv2.VideoCapture(file_path)
+                                
+                                # Seek to 1 second
+                                cap.set(cv2.CAP_PROP_POS_MSEC, 1000)
+                                
+                                ret, frame = cap.read()
+                                cap.release()
+                                
+                                if ret:
+                                    # Resize frame
+                                    frame = cv2.resize(frame, (320, 240))
+                                    
+                                    # Save thumbnail
+                                    cv2.imwrite(thumbnail_path, frame)
+                                    
+                                    if os.path.exists(thumbnail_path):
+                                        logging.info(f"OpenCV thumbnail generated: {thumbnail_filename}")
+                                    else:
+                                        logging.error("OpenCV failed to save thumbnail")
+                                        thumbnail_filename = None
+                                else:
+                                    logging.error("OpenCV failed to read video frame")
+                                    thumbnail_filename = None
+                            
+                            except Exception as cv_error:
+                                logging.error(f"OpenCV thumbnail error: {cv_error}")
+                                thumbnail_filename = None
+                        
                     except Exception as thumb_error:
                         logging.critical(f"Critical thumbnail generation error: {thumb_error}")
                         logging.critical(traceback.format_exc())

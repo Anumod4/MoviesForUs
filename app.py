@@ -30,103 +30,113 @@ app = Flask(__name__)
 from dotenv import load_dotenv
 load_dotenv()
 
+# Logging Configuration
+def configure_logging():
+    """
+    Configure comprehensive logging for the application
+    Ensures detailed logs for debugging and monitoring
+    """
+    # Ensure logs directory exists
+    log_dir = os.path.join(app.root_path, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,  # Capture all levels of logs
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            # File handler for persistent logging
+            logging.FileHandler(os.path.join(log_dir, 'app.log'), encoding='utf-8'),
+            # Console handler for immediate visibility
+            logging.StreamHandler()
+        ]
+    )
+
+    # Set SQLAlchemy logging to warning to reduce verbosity
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+
+    # Log application startup
+    logging.info("Application logging configured successfully")
+
+# Configure logging early
+configure_logging()
+
+# Database Configuration Function
+def get_database_uri():
+    """
+    Determine the most appropriate database URI
+    
+    Returns:
+        str: Database connection URI
+    """
+    # Check DATABASE_URL first
+    database_url = os.getenv('DATABASE_URL')
+    
+    # If not set, try constructing from individual variables
+    if not database_url:
+        # Check for individual database configuration variables
+        db_host = os.getenv('AIVEN_DB_HOST')
+        db_port = os.getenv('AIVEN_DB_PORT')
+        db_name = os.getenv('AIVEN_DB_NAME', 'defaultdb')
+        db_user = os.getenv('AIVEN_DB_USER')
+        db_password = os.getenv('AIVEN_DB_PASSWORD')
+        
+        if db_host and db_port and db_user and db_password:
+            database_url = (
+                f"postgresql://{db_user}:{db_password}@"
+                f"{db_host}:{db_port}/{db_name}?sslmode=require"
+            )
+        else:
+            # Absolute fallback to SQLite
+            logging.warning("No database configuration found. Using SQLite.")
+            instance_path = os.path.join(app.root_path, 'instance')
+            os.makedirs(instance_path, exist_ok=True)
+            database_url = f'sqlite:///{os.path.join(instance_path, "app.db")}'
+    
+    # Log the selected database URI
+    logging.info(f"Selected Database URI: {database_url}")
+    
+    return database_url
+
 # Set secret key using environment variable or generate a secure random key
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
 
-# Database and ORM Imports
-from flask_sqlalchemy import SQLAlchemy
+# Set database URI before initializing SQLAlchemy
+app.config['SQLALCHEMY_DATABASE_URI'] = get_database_uri()
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Initialize SQLAlchemy after app configuration
+# Initialize SQLAlchemy
+from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy(app)
 
-# Database Configuration with Enhanced Error Handling
+# Ensure database is configured
 def configure_database():
     """
-    Comprehensive database configuration with robust error handling
-    
-    Returns:
-        str: Configured database URL
-    
-    Raises:
-        Exception: Detailed database configuration errors
+    Validate and test database connection
     """
     try:
-        # Detailed logging for database configuration
-        logging.info("Initializing database configuration")
-        
-        # Construct database URL from environment variables if not already set
-        database_url = os.getenv('DATABASE_URL')
-        
-        # Fallback database URL construction
-        if not database_url:
-            # Check for individual database configuration variables
-            db_host = os.getenv('AIVEN_DB_HOST')
-            db_port = os.getenv('AIVEN_DB_PORT')
-            db_name = os.getenv('AIVEN_DB_NAME', 'defaultdb')
-            db_user = os.getenv('AIVEN_DB_USER')
-            db_password = os.getenv('AIVEN_DB_PASSWORD')
+        # Test database connection
+        with app.app_context():
+            # Explicitly create tables if they don't exist
+            db.create_all()
+            logging.info("Database tables created successfully")
             
-            if db_host and db_port and db_user and db_password:
-                database_url = (
-                    f"postgresql://{db_user}:{db_password}@"
-                    f"{db_host}:{db_port}/{db_name}?sslmode=require"
-                )
-            else:
-                # Absolute fallback to SQLite
-                logging.warning("No database configuration found. Using SQLite.")
-                instance_path = os.path.join(app.root_path, 'instance')
-                os.makedirs(instance_path, exist_ok=True)
-                database_url = f'sqlite:///{os.path.join(instance_path, "app.db")}'
-        
-        # Validate database URL
-        if not database_url:
-            raise ValueError("Unable to determine database URL")
-        
-        # Configure SQLAlchemy
-        app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-        app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-        
-        # Log detailed database configuration
-        logging.info(f"Database URL configured: {database_url}")
-        
-        # Additional database connection validation
-        try:
-            # Test database connection
-            with app.app_context():
-                # Explicitly create tables if they don't exist
-                db.create_all()
-                logging.info("Database tables created successfully")
-                
-                # Test connection by checking session
-                db.session.execute('SELECT 1')
-                logging.info("Database connection successful")
-        except Exception as conn_error:
-            logging.error(f"Database connection test failed: {conn_error}")
-            logging.error(traceback.format_exc())
-            raise RuntimeError(f"Unable to connect to database: {conn_error}")
-        
-        return database_url
-    
-    except Exception as e:
-        # Comprehensive error logging
-        logging.critical("Critical error during database configuration")
-        logging.critical(f"Error details: {str(e)}")
-        logging.critical(f"Error type: {type(e).__name__}")
-        logging.critical(f"Error location: {inspect.currentframe().f_code.co_filename}:{inspect.currentframe().f_lineno}")
-        logging.critical(traceback.format_exc())
-        
-        # Raise a more informative error
-        raise RuntimeError(f"Database configuration failed: {str(e)}")
+            # Test connection by checking session
+            db.session.execute('SELECT 1')
+            logging.info("Database connection successful")
+    except Exception as conn_error:
+        logging.error(f"Database connection test failed: {conn_error}")
+        logging.error(traceback.format_exc())
+        raise RuntimeError(f"Unable to connect to database: {conn_error}")
 
-# Ensure database URL is set before app initialization
+# Validate database configuration
 try:
-    DATABASE_URL = configure_database()
+    configure_database()
 except Exception as config_error:
     logging.critical(f"Fatal database configuration error: {config_error}")
     logging.critical(traceback.format_exc())
-    # Fallback to SQLite if all else fails
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///fallback.db'
-    logging.warning("Falling back to SQLite database")
+    # In a real-world scenario, you might want to have a fallback or emergency shutdown
+    raise
 
 # Configure additional app settings
 app.config['SQLALCHEMY_ECHO'] = False  # Disable SQL logging in production
@@ -155,37 +165,6 @@ login_manager.login_view = 'login'
 
 # Initialize Bcrypt
 bcrypt = Bcrypt(app)
-
-# Configure logging
-def configure_logging():
-    """
-    Configure comprehensive logging for the application
-    Ensures detailed logs for debugging and monitoring
-    """
-    # Ensure logs directory exists
-    log_dir = os.path.join(app.root_path, 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-
-    # Configure logging
-    logging.basicConfig(
-        level=logging.DEBUG,  # Capture all levels of logs
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            # File handler for persistent logging
-            logging.FileHandler(os.path.join(log_dir, 'app.log'), encoding='utf-8'),
-            # Console handler for immediate visibility
-            logging.StreamHandler()
-        ]
-    )
-
-    # Set SQLAlchemy logging to warning to reduce verbosity
-    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
-
-    # Log application startup
-    logging.info("Application logging configured successfully")
-
-# Configure logging early in the application startup
-configure_logging()
 
 # User Model with improved error handling
 class User(UserMixin, db.Model):

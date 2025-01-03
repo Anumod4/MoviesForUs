@@ -294,6 +294,41 @@ except ImportError:
 import cv2
 import magic  # MIME type detection
 
+# Function to check FFmpeg availability
+def check_ffmpeg_availability():
+    """
+    Check if FFmpeg is installed and available in system PATH
+    
+    Returns:
+        bool: True if FFmpeg is available, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ['ffmpeg', '-version'], 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            text=True,
+            timeout=5
+        )
+        return result.returncode == 0
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+# Check FFmpeg availability during app initialization
+FFMPEG_AVAILABLE = check_ffmpeg_availability()
+
+# Log FFmpeg availability
+if not FFMPEG_AVAILABLE:
+    logging.warning("""
+    FFmpeg is not installed or not in system PATH.
+    Video thumbnail generation will use fallback methods.
+    
+    Installation instructions:
+    - macOS: brew install ffmpeg
+    - Ubuntu/Debian: sudo apt-get install ffmpeg
+    - Windows: Download from https://ffmpeg.org/download.html
+    """)
+
 # Initialize extensions
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'

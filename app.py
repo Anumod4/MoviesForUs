@@ -1453,7 +1453,7 @@ def upload():
         
         elif request.method == 'GET':
             # Render upload page for GET requests
-            return render_template('upload.html')
+            return render_template('upload.html', languages=LANGUAGES)
         
         # Unexpected method
         logging.warning(f"Unexpected request method: {request.method}")

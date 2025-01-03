@@ -15,6 +15,7 @@ import traceback
 import inspect  # Add inspect module import
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode
+import shutil
 
 # Additional imports for video validation
 import os
@@ -1238,17 +1239,38 @@ def upload():
                             return redirect(request.url)
 
                     # Generate thumbnail
-                    thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb.jpg"
+                    thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumbnail.jpg"
                     thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
                     
-                    try:
-                        generate_thumbnail(file_path, thumbnail_path)
-                        logging.info(f"Thumbnail generated: {thumbnail_path}")
-                    except Exception as thumb_error:
-                        logging.error(f"Thumbnail generation error: {thumb_error}")
-                        logging.error(traceback.format_exc())
-                        
-                        # Optional: continue without thumbnail
+                    # Ensure static/thumbnails directory exists
+                    static_thumbnails_dir = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails')
+                    os.makedirs(static_thumbnails_dir, exist_ok=True)
+                    
+                    # Path for static thumbnail
+                    static_thumbnail_path = os.path.join(static_thumbnails_dir, thumbnail_filename)
+                    
+                    # Generate thumbnail
+                    if FFMPEG_AVAILABLE:
+                        try:
+                            # Generate thumbnail using FFmpeg
+                            thumbnail_result = generate_thumbnail(
+                                video_path=file_path, 
+                                output_path=thumbnail_path, 
+                                size=(320, 240)
+                            )
+                            
+                            # Copy thumbnail to static folder
+                            if thumbnail_result and os.path.exists(thumbnail_path):
+                                shutil.copy2(thumbnail_path, static_thumbnail_path)
+                                logging.info(f"Thumbnail generated and copied: {static_thumbnail_path}")
+                            else:
+                                logging.warning("Thumbnail generation failed")
+                                thumbnail_filename = None
+                        except Exception as thumbnail_error:
+                            logging.error(f"Thumbnail generation error: {thumbnail_error}")
+                            thumbnail_filename = None
+                    else:
+                        logging.warning("FFmpeg not available. Skipping thumbnail generation.")
                         thumbnail_filename = None
 
                     # Prepare movie metadata

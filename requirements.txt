@@ -20,6 +20,9 @@ python-ffmpeg==1.0.14
 python-magic==0.4.27
 opencv-python-headless==4.7.0.72
 
+# Security and Authentication
+flask-bcrypt==1.0.1
+
 # Note: Requires system-level FFmpeg
 # macOS: 
 #   brew install ffmpeg

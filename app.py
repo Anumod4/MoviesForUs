@@ -24,6 +24,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 # Security and Authentication
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_bcrypt import Bcrypt  # Add Bcrypt import
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # Database and ORM
@@ -41,9 +42,13 @@ import magic  # MIME type detection
 # Load environment variables
 load_dotenv()
 
+# Initialize Flask extensions
 app = Flask(__name__)
 
-# Set secret key explicitly
+# Initialize Bcrypt
+bcrypt = Bcrypt(app)
+
+# Set secret key using environment variable or generate a secure random key
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
 
 # Ensure the secret key is set before initializing extensions
@@ -177,7 +182,6 @@ print(f"Cache Folder: {app.config['CACHE_DIR']}")
 
 # Initialize extensions
 db = SQLAlchemy(app)
-bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 

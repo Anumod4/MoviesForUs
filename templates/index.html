@@ -43,7 +43,7 @@
                     <div class="movie-thumbnail">
                         {% if movie.thumbnail %}
                         <a href="{{ url_for('play_movie', movie_id=movie.id) }}" class="thumbnail-link">
-                            <img src="{{ url_for('static', filename='thumbnails/' + movie.thumbnail) }}" 
+                            <img src="{{ url_for('serve_thumbnail', filename=movie.thumbnail) }}" 
                                  alt="{{ movie.title }} Thumbnail"
                                  onerror="this.onerror=null; this.src='{{ url_for('static', filename='default_thumbnail.jpg') }}';">
                             <div class="play-overlay">

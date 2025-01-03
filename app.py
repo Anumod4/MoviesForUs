@@ -348,103 +348,62 @@ def generate_thumbnail(file_path):
     # Validate input
     if not file_path or not os.path.exists(file_path):
         logging.error(f"Invalid file path for thumbnail generation: {file_path}")
-        logging.error(f"Current working directory: {os.getcwd()}")
-        
-        # Additional debugging information
-        try:
-            # List contents of the upload directory
-            upload_dir = app.config['UPLOAD_FOLDER']
-            logging.info(f"Contents of upload directory {upload_dir}:")
-            for root, dirs, files in os.walk(upload_dir):
-                for file in files:
-                    logging.info(f"Found file: {os.path.join(root, file)}")
-        except Exception as list_error:
-            logging.error(f"Error listing upload directory: {list_error}")
-        
         return None
     
-    # Debug logging for paths
-    logging.info("=" * 50)
-    logging.info("Thumbnail Generation Debug")
-    logging.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
-    logging.info(f"Full File Path: {file_path}")
-    
-    # Generate unique thumbnail filename with more entropy
+    # Generate unique thumbnail filename
     filename = os.path.basename(file_path)
     base_filename = os.path.splitext(filename)[0]
+    unique_id = str(uuid.uuid4())[:8]
+    thumbnail_filename = f"{base_filename}_thumb_{unique_id}.jpg"
     
-    # Use multiple sources of uniqueness
-    unique_id = str(uuid.uuid4())
-    timestamp = int(datetime.now().timestamp())
-    random_suffix = secrets.token_hex(4)  # Additional randomness
-    
-    # Create initial thumbnail filename
-    thumbnail_filename = f"{base_filename}_thumb_{unique_id[:8]}_{timestamp}_{random_suffix}.jpg"
-    
-    # Ensure unique thumbnail path
-    thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
-    
-    # Extensive uniqueness check
-    counter = 0
-    while os.path.exists(thumbnail_path):
-        counter += 1
-        # Incorporate counter into filename
-        thumbnail_filename = f"{base_filename}_thumb_{unique_id[:8]}_{timestamp}_{random_suffix}_{counter}.jpg"
-        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
-        
-        # Prevent infinite loop
-        if counter > 100:
-            logging.error(f"Failed to generate unique thumbnail filename after {counter} attempts")
-            return None
-    
-    # Debug directory permissions
-    thumbnail_dir = app.config['THUMBNAIL_FOLDER']
+    # Ensure thumbnail directory exists
+    thumbnail_dir = app.config.get('THUMBNAIL_FOLDER', os.path.join(app.root_path, 'static', 'thumbnails'))
     os.makedirs(thumbnail_dir, mode=0o755, exist_ok=True)
+    
+    thumbnail_path = os.path.join(thumbnail_dir, thumbnail_filename)
     
     # Attempt thumbnail generation
     if FFMPEG_AVAILABLE:
         try:
-            logging.info("Attempting FFmpeg thumbnail generation...")
             # FFmpeg thumbnail generation
             ffmpeg_cmd = [
                 'ffmpeg', 
-                '-i', file_path,  # Use saved file path
+                '-i', file_path,  # Input file
                 '-ss', '00:00:01',  # Seek to 1 second
                 '-vframes', '1',  # Extract 1 frame
                 '-vf', 'scale=320:240',  # Resize
+                '-q:v', '2',  # High quality
                 '-y',  # Overwrite output file
                 thumbnail_path
             ]
-            
-            logging.info(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
             
             # Run FFmpeg command with error capture
             result = subprocess.run(
                 ffmpeg_cmd, 
                 capture_output=True, 
-                text=True
+                text=True,
+                timeout=30  # 30-second timeout
             )
             
-            logging.info(f"FFmpeg return code: {result.returncode}")
-            logging.info(f"FFmpeg stdout: {result.stdout}")
-            logging.info(f"FFmpeg stderr: {result.stderr}")
-            
+            # Check if thumbnail was generated
             if result.returncode == 0 and os.path.exists(thumbnail_path):
                 # Verify thumbnail file
                 thumb_size = os.path.getsize(thumbnail_path)
-                logging.info(f"Thumbnail generated successfully. Size: {thumb_size} bytes")
-                return thumbnail_filename
-            
-            logging.error(f"FFmpeg failed to generate thumbnail")
+                if thumb_size > 0:
+                    logging.info(f"FFmpeg thumbnail generated: {thumbnail_path}")
+                    return thumbnail_filename
+                else:
+                    logging.error("Generated thumbnail is empty")
+            else:
+                logging.error(f"FFmpeg thumbnail generation failed: {result.stderr}")
         
+        except subprocess.TimeoutExpired:
+            logging.error("FFmpeg thumbnail generation timed out")
         except Exception as ffmpeg_error:
-            logging.error(f"FFmpeg error: {ffmpeg_error}")
-            logging.error(f"FFmpeg error type: {type(ffmpeg_error)}")
-            logging.error(traceback.format_exc())
+            logging.error(f"FFmpeg thumbnail error: {ffmpeg_error}")
     
     # Fallback to OpenCV if FFmpeg fails
     try:
-        logging.info("Attempting OpenCV thumbnail generation...")
         import cv2
         
         # Open video capture
@@ -460,56 +419,32 @@ def generate_thumbnail(file_path):
         cap.release()
         
         if ret:
+            # Resize frame
             frame = cv2.resize(frame, (320, 240))
+            
+            # Save thumbnail
             cv2.imwrite(thumbnail_path, frame)
             
             if os.path.exists(thumbnail_path):
                 thumb_size = os.path.getsize(thumbnail_path)
-                logging.info(f"OpenCV thumbnail generated. Size: {thumb_size} bytes")
-                return thumbnail_filename
-            
-            logging.error("OpenCV failed to save thumbnail")
+                if thumb_size > 0:
+                    logging.info(f"OpenCV thumbnail generated: {thumbnail_path}")
+                    return thumbnail_filename
+                else:
+                    logging.error("OpenCV generated empty thumbnail")
+            else:
+                logging.error("OpenCV failed to save thumbnail")
         else:
             logging.error("OpenCV failed to read video frame")
     
+    except ImportError:
+        logging.error("OpenCV not available")
     except Exception as cv_error:
-        logging.error(f"OpenCV error: {cv_error}")
-        logging.error(traceback.format_exc())
+        logging.error(f"OpenCV thumbnail error: {cv_error}")
     
-    logging.info("=" * 50)
+    # If all methods fail, return None
+    logging.error("Failed to generate thumbnail using all methods")
     return None
-
-def check_ffmpeg_availability():
-    """
-    Check if FFmpeg is installed and available in system PATH
-    
-    Returns:
-        bool: True if FFmpeg is available, False otherwise
-    """
-    try:
-        result = subprocess.run(
-            ['ffmpeg', '-version'], 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE, 
-            text=True,
-            timeout=5
-        )
-        return result.returncode == 0
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-
-# Check FFmpeg availability during app initialization
-FFMPEG_AVAILABLE = check_ffmpeg_availability()
-if not FFMPEG_AVAILABLE:
-    logging.warning("""
-    FFmpeg is not installed or not in system PATH.
-    Video conversion will be disabled.
-    
-    Installation instructions:
-    - macOS: brew install ffmpeg
-    - Ubuntu/Debian: sudo apt-get install ffmpeg
-    - Windows: Download from https://ffmpeg.org/download.html
-    """)
 
 def convert_video_to_mp4(input_path, output_path=None):
     """
@@ -1407,15 +1342,33 @@ def upload():
                     # Generate thumbnail
                     try:
                         thumbnail_path = generate_thumbnail(file_path)
+                        
+                        # Ensure thumbnail is saved in the correct directory
+                        if thumbnail_path:
+                            # Move thumbnail to the static/thumbnails directory
+                            thumbnail_filename = os.path.basename(thumbnail_path)
+                            static_thumbnail_dir = os.path.join(app.root_path, 'static', 'thumbnails')
+                            os.makedirs(static_thumbnail_dir, exist_ok=True)
+                            
+                            static_thumbnail_path = os.path.join(static_thumbnail_dir, thumbnail_filename)
+                            shutil.move(thumbnail_path, static_thumbnail_path)
+                            
+                            # Use only the filename for database storage
+                            thumbnail_filename = os.path.basename(static_thumbnail_path)
+                            logging.info(f"Thumbnail saved: {static_thumbnail_path}")
+                        else:
+                            thumbnail_filename = None
+                            logging.warning("Thumbnail generation failed")
                     except Exception as thumbnail_error:
-                        logging.warning(f"Thumbnail generation failed: {thumbnail_error}")
-                        thumbnail_path = None
+                        logging.error(f"Thumbnail generation error: {thumbnail_error}")
+                        logging.error(traceback.format_exc())
+                        thumbnail_filename = None
                     
                     # Create movie record
                     new_movie = Movie(
                         title=movie_title,
                         filename=filename,
-                        thumbnail=thumbnail_path,
+                        thumbnail=thumbnail_filename,
                         language=movie_language,
                         user_id=current_user.id
                     )
@@ -1504,19 +1457,28 @@ def serve_thumbnail(filename):
         # Validate filename to prevent directory traversal
         filename = secure_filename(filename)
         
-        # Full path to the thumbnail
-        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], filename)
+        # Potential thumbnail locations
+        thumbnail_locations = [
+            os.path.join(app.root_path, 'static', 'thumbnails', filename),
+            os.path.join(app.config.get('THUMBNAIL_FOLDER', ''), filename),
+            os.path.join(app.root_path, 'static', filename)
+        ]
+        
+        # Find the first existing thumbnail
+        thumbnail_path = None
+        for potential_path in thumbnail_locations:
+            if os.path.exists(potential_path):
+                thumbnail_path = potential_path
+                break
         
         # Log thumbnail serving details
         logging.info(f"Serving Thumbnail: {filename}")
-        logging.info(f"Thumbnail Path: {thumbnail_path}")
-        logging.info(f"Thumbnail Exists: {os.path.exists(thumbnail_path)}")
+        logging.info(f"Potential Thumbnail Paths: {thumbnail_locations}")
         
-        # Check if thumbnail exists
-        if not os.path.exists(thumbnail_path):
-            # Log and return a default thumbnail
+        # If no thumbnail found, serve default
+        if not thumbnail_path:
             logging.warning(f"Thumbnail not found: {filename}")
-            return send_from_directory('static', 'default_thumbnail.jpg')
+            return send_from_directory(os.path.join(app.root_path, 'static'), 'default_thumbnail.jpg')
         
         # Serve the thumbnail
         return send_file(thumbnail_path, mimetype='image/jpeg')
@@ -1527,7 +1489,7 @@ def serve_thumbnail(filename):
         logging.error(traceback.format_exc())
         
         # Return default thumbnail on error
-        return send_from_directory('static', 'default_thumbnail.jpg'), 404
+        return send_from_directory(os.path.join(app.root_path, 'static'), 'default_thumbnail.jpg'), 404
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))

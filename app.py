@@ -587,6 +587,23 @@ def create_error_template():
 # Call the function to ensure error template exists
 create_error_template()
 
+def allowed_file(filename):
+    """
+    Check if the uploaded file has an allowed extension.
+    
+    Args:
+        filename (str): Name of the file to validate
+    
+    Returns:
+        bool: True if file extension is allowed, False otherwise
+    """
+    ALLOWED_EXTENSIONS = {
+        'mp4', 'avi', 'mov', 'mkv', 'flv', 'wmv', 
+        'webm', 'mpeg', 'mpg', 'm4v', 'divx'
+    }
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 @app.route('/stream/<filename>')
 def stream(filename):
     """

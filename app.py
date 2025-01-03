@@ -960,6 +960,10 @@ LANGUAGES = [
 @app.route('/')
 @login_required
 def index():
+    # Diagnostic logging for database query
+    logging.info("Accessing index route")
+    logging.info(f"Current User ID: {current_user.id}")
+    
     # Get search and filter parameters
     search_query = request.args.get('search', '').strip()
     language_filter = request.args.get('language', '')
@@ -984,8 +988,15 @@ def index():
 
     # Comprehensive logging for debugging
     logging.info(f"Total movies retrieved: {len(movies)}")
+    
+    # Detailed logging for each movie
     for movie in movies:
         logging.info(f"Movie Details - ID: {movie.id}, Title: {movie.title}, Filename: {movie.filename}, Thumbnail: {movie.thumbnail}, Language: {movie.language}, User ID: {movie.user_id}")
+        
+        # Check if thumbnail exists
+        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail)
+        logging.info(f"Thumbnail path: {thumbnail_path}")
+        logging.info(f"Thumbnail exists: {os.path.exists(thumbnail_path) if movie.thumbnail else 'No thumbnail'}")
 
     # Additional database query logging
     try:

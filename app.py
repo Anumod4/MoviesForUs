@@ -32,6 +32,7 @@ from flask import (
     flash, send_file, Response, stream_with_context, jsonify
 )
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import RequestEntityTooLarge
 
 # Initialize Flask app first
 app = Flask(__name__)
@@ -762,6 +763,14 @@ def allowed_file(filename):
     }
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_large_file(error):
+    logging.error(f"File upload too large: {error}")
+    return jsonify({
+        'status': 'error', 
+        'message': 'File is too large. Maximum upload size is 500 MB.'
+    }), 413
 
 @app.route('/stream/<filename>')
 def stream(filename):

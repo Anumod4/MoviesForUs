@@ -18,7 +18,15 @@ services:
       mkdir -p /opt/render/project/src/static/uploads
       mkdir -p /opt/render/project/src/static/thumbnails
       chmod -R 755 /opt/render/project/src/static
-    startCommand: python app.py
+    startCommand: |
+      . venv/bin/activate
+      gunicorn --worker-tmp-dir /dev/shm \
+               --workers 4 \
+               --threads 2 \
+               --timeout 120 \
+               --max-requests 1000 \
+               --bind 0.0.0.0:$PORT \
+               app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
@@ -27,7 +35,7 @@ services:
       - key: FLASK_ENV
         value: production
       - key: FLASK_DEBUG
-        value: "1"
+        value: "0"
       - key: ADMIN_USERNAME
         generateValue: true
       - key: ADMIN_PASSWORD
@@ -48,6 +56,8 @@ services:
         value: /opt/render/project/src/static/uploads
       - key: THUMBNAIL_FOLDER
         value: /opt/render/project/src/static/thumbnails
+      - key: MAX_CONTENT_LENGTH
+        value: "500 * 1024 * 1024"  # 500 MB upload limit
     disk:
       name: movie-storage
       mountPath: /opt/render/project/src/static

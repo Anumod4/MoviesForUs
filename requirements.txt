@@ -11,6 +11,9 @@ flask-caching==2.1.0
 # Environment Variables
 python-dotenv==1.0.0
 
+# Numerical and Scientific Computing
+numpy==1.24.3
+
 # Video Processing Dependencies
 ffmpeg-python==0.2.0
 python-ffmpeg==1.0.14

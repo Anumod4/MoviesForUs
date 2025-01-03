@@ -982,6 +982,19 @@ def index():
     # Order by most recent
     movies = movies_query.order_by(Movie.id.desc()).all()
 
+    # Comprehensive logging for debugging
+    logging.info(f"Total movies retrieved: {len(movies)}")
+    for movie in movies:
+        logging.info(f"Movie Details - ID: {movie.id}, Title: {movie.title}, Filename: {movie.filename}, Thumbnail: {movie.thumbnail}, Language: {movie.language}, User ID: {movie.user_id}")
+
+    # Additional database query logging
+    try:
+        # Count total movies in the database
+        total_movies_count = Movie.query.count()
+        logging.info(f"Total movies in database: {total_movies_count}")
+    except Exception as count_error:
+        logging.error(f"Error counting movies: {count_error}")
+
     return render_template('index.html', 
                            movies=movies, 
                            languages=LANGUAGES, 

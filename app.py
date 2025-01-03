@@ -10,6 +10,7 @@ import tempfile
 import mimetypes
 import subprocess
 import secrets
+import sys
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode
 
@@ -629,7 +630,11 @@ def safe_url_decode(query_string, keep_blank_values=True):
     except Exception as e:
         logging.error(f"URL decoding error: {e}")
         return {}
+# Generate a secure random secret key
+secret_key = secrets.token_hex(32)
 
+# Generate a secure random token
+random_token = secrets.token_urlsafe(16)
 @app.route('/stream/<filename>')
 def stream(filename):
     """

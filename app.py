@@ -181,6 +181,10 @@ except Exception as config_error:
 logging.info(f"FINAL UPLOAD_FOLDER: {app.config.get('UPLOAD_FOLDER', 'NOT SET')}")
 logging.info(f"FINAL THUMBNAIL_FOLDER: {app.config.get('THUMBNAIL_FOLDER', 'NOT SET')}")
 
+# Thumbnail configuration
+THUMBNAIL_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails')
+app.config['THUMBNAIL_FOLDER'] = THUMBNAIL_FOLDER
+
 # Database Configuration Function
 def get_database_uri():
     """

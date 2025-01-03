@@ -1,3 +1,6 @@
+# Early import of Flask-Login patch
+import flask_login_patch
+
 # Standard Library Imports
 import os
 import re

@@ -5,14 +5,20 @@ services:
     region: oregon
     branch: main
     buildCommand: |
-      apt-get update && apt-get install -y ffmpeg python3-opencv
+      # Install system dependencies
+      apt-get update
+      apt-get install -y ffmpeg python3-opencv libgl1-mesa-glx
+      
+      # Set up Python environment
       python3 -m venv venv
       . venv/bin/activate
       pip install -r requirements.txt
-    startCommand: |
-      . venv/bin/activate
-      python app.py
-      # gunicorn --worker-tmp-dir /dev/shm app:app
+      
+      # Create and set permissions for upload directories
+      mkdir -p /opt/render/project/src/static/uploads
+      mkdir -p /opt/render/project/src/static/thumbnails
+      chmod -R 755 /opt/render/project/src/static
+    startCommand: python app.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
@@ -21,7 +27,7 @@ services:
       - key: FLASK_ENV
         value: production
       - key: FLASK_DEBUG
-        value: 0
+        value: "1"
       - key: ADMIN_USERNAME
         generateValue: true
       - key: ADMIN_PASSWORD

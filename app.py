@@ -1374,87 +1374,118 @@ def upload():
                     title = request.form.get('title', filename)
                     language = request.form.get('language', 'English')
                     
-                    # Generate thumbnail
-                    thumbnail_filename = None
+                    # Debug logging for paths
+                    logging.info("=" * 50)
+                    logging.info("Thumbnail Generation Debug")
+                    logging.info(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
+                    logging.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
+                    logging.info(f"File Path: {file_path}")
                     
-                    try:
-                        # Generate unique thumbnail filename
-                        thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb_{uuid.uuid4().hex[:8]}.jpg"
-                        
-                        # Use absolute paths for thumbnails
-                        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
-                        static_thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
-                        
-                        # Ensure thumbnail directories exist
-                        os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
-                        
-                        # Attempt thumbnail generation
-                        if FFMPEG_AVAILABLE:
-                            try:
-                                # FFmpeg thumbnail generation
-                                ffmpeg_cmd = [
-                                    'ffmpeg', 
-                                    '-i', file_path,  # Input video
-                                    '-ss', '00:00:01',  # Seek to 1 second
-                                    '-vframes', '1',  # Extract 1 frame
-                                    '-vf', 'scale=320:240',  # Resize
-                                    '-y',  # Overwrite output file
-                                    thumbnail_path
-                                ]
-                                
-                                # Run FFmpeg command with error capture
-                                result = subprocess.run(
-                                    ffmpeg_cmd, 
-                                    capture_output=True, 
-                                    text=True
-                                )
-                                
-                                if result.returncode == 0 and os.path.exists(thumbnail_path):
-                                    logging.info(f"Thumbnail generated successfully: {thumbnail_filename}")
-                                else:
-                                    logging.error(f"FFmpeg failed: {result.stderr}")
-                                    thumbnail_filename = None
+                    # Generate unique thumbnail filename
+                    thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb_{uuid.uuid4().hex[:8]}.jpg"
+                    thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
+                    
+                    logging.info(f"Thumbnail Path: {thumbnail_path}")
+                    
+                    # Debug directory permissions
+                    thumbnail_dir = app.config['THUMBNAIL_FOLDER']
+                    if not os.path.exists(thumbnail_dir):
+                        os.makedirs(thumbnail_dir, mode=0o755, exist_ok=True)
+                        logging.info(f"Created thumbnail directory: {thumbnail_dir}")
+                    
+                    # Log directory permissions
+                    import stat
+                    st = os.stat(thumbnail_dir)
+                    logging.info(f"Thumbnail directory permissions: {oct(stat.S_IMODE(st.st_mode))}")
+                    logging.info(f"Thumbnail directory owner: {st.st_uid}")
+                    
+                    # Attempt thumbnail generation
+                    if FFMPEG_AVAILABLE:
+                        try:
+                            logging.info("Attempting FFmpeg thumbnail generation...")
+                            # FFmpeg thumbnail generation
+                            ffmpeg_cmd = [
+                                'ffmpeg', 
+                                '-i', file_path,  # Input video
+                                '-ss', '00:00:01',  # Seek to 1 second
+                                '-vframes', '1',  # Extract 1 frame
+                                '-vf', 'scale=320:240',  # Resize
+                                '-y',  # Overwrite output file
+                                thumbnail_path
+                            ]
                             
-                            except Exception as ffmpeg_error:
-                                logging.error(f"FFmpeg thumbnail error: {ffmpeg_error}")
+                            logging.info(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
+                            
+                            # Run FFmpeg command with error capture
+                            result = subprocess.run(
+                                ffmpeg_cmd, 
+                                capture_output=True, 
+                                text=True
+                            )
+                            
+                            logging.info(f"FFmpeg return code: {result.returncode}")
+                            logging.info(f"FFmpeg stdout: {result.stdout}")
+                            logging.info(f"FFmpeg stderr: {result.stderr}")
+                            
+                            if result.returncode == 0 and os.path.exists(thumbnail_path):
+                                # Verify thumbnail file
+                                thumb_size = os.path.getsize(thumbnail_path)
+                                logging.info(f"Thumbnail generated successfully. Size: {thumb_size} bytes")
+                                
+                                # Test thumbnail file readability
+                                try:
+                                    with open(thumbnail_path, 'rb') as f:
+                                        f.read(1)
+                                    logging.info("Thumbnail file is readable")
+                                except Exception as read_error:
+                                    logging.error(f"Thumbnail file read error: {read_error}")
+                                    thumbnail_filename = None
+                            else:
+                                logging.error(f"FFmpeg failed to generate thumbnail")
                                 thumbnail_filename = None
                         
-                        # Fallback to OpenCV if FFmpeg fails
-                        if thumbnail_filename is None:
-                            try:
-                                import cv2
-                                cap = cv2.VideoCapture(file_path)
-                                
-                                # Seek to 1 second
-                                cap.set(cv2.CAP_PROP_POS_MSEC, 1000)
-                                
-                                ret, frame = cap.read()
-                                cap.release()
-                                
-                                if ret:
-                                    # Resize frame
-                                    frame = cv2.resize(frame, (320, 240))
-                                    
-                                    # Save thumbnail
-                                    cv2.imwrite(thumbnail_path, frame)
-                                    
-                                    if os.path.exists(thumbnail_path):
-                                        logging.info(f"OpenCV thumbnail generated: {thumbnail_filename}")
-                                    else:
-                                        logging.error("OpenCV failed to save thumbnail")
-                                        thumbnail_filename = None
-                                else:
-                                    logging.error("OpenCV failed to read video frame")
-                                    thumbnail_filename = None
+                        except Exception as ffmpeg_error:
+                            logging.error(f"FFmpeg error: {ffmpeg_error}")
+                            logging.error(f"FFmpeg error type: {type(ffmpeg_error)}")
+                            logging.error(traceback.format_exc())
+                            thumbnail_filename = None
+                    
+                    # Fallback to OpenCV if FFmpeg fails
+                    if thumbnail_filename is None:
+                        try:
+                            logging.info("Attempting OpenCV thumbnail generation...")
+                            import cv2
+                            cap = cv2.VideoCapture(file_path)
                             
-                            except Exception as cv_error:
-                                logging.error(f"OpenCV thumbnail error: {cv_error}")
+                            if not cap.isOpened():
+                                logging.error("OpenCV failed to open video file")
+                                raise Exception("Failed to open video file")
+                            
+                            # Seek to 1 second
+                            cap.set(cv2.CAP_PROP_POS_MSEC, 1000)
+                            ret, frame = cap.read()
+                            cap.release()
+                            
+                            if ret:
+                                frame = cv2.resize(frame, (320, 240))
+                                cv2.imwrite(thumbnail_path, frame)
+                                
+                                if os.path.exists(thumbnail_path):
+                                    thumb_size = os.path.getsize(thumbnail_path)
+                                    logging.info(f"OpenCV thumbnail generated. Size: {thumb_size} bytes")
+                                else:
+                                    logging.error("OpenCV failed to save thumbnail")
+                                    thumbnail_filename = None
+                            else:
+                                logging.error("OpenCV failed to read video frame")
                                 thumbnail_filename = None
                         
-                    except Exception as thumb_error:
-                        logging.critical(f"Critical thumbnail generation error: {thumb_error}")
-                        logging.critical(traceback.format_exc())
-                        thumbnail_filename = None
+                        except Exception as cv_error:
+                            logging.error(f"OpenCV error: {cv_error}")
+                            logging.error(traceback.format_exc())
+                            thumbnail_filename = None
+                    
+                    logging.info("=" * 50)
                     
                     # Create movie record
                     new_movie = Movie(

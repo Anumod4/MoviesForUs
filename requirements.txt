@@ -1,32 +1,32 @@
 # Core Web Framework
-flask==2.3.2
-flask-sqlalchemy==3.0.3
-flask-login==0.6.2
+Flask==2.3.3
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.2
 flask-bcrypt==1.0.1
 
 # Database Drivers
-psycopg2-binary==2.9.6  # PostgreSQL driver
-SQLAlchemy==2.0.15
+psycopg2-binary==2.9.7  # PostgreSQL driver
+SQLAlchemy==2.0.20
 
 # Environment and Configuration
-python-dotenv==0.20.0  # Updated to latest available version
+python-dotenv==1.0.0  # Updated to latest available version
 python-jose==3.3.0
 
 # Security
-werkzeug==2.3.4
+Werkzeug==2.3.7
 cryptography==41.0.1
 
 # Logging and Debugging
 blinker==1.6.2
 
 # Deployment and Production
-gunicorn==20.1.0
+gunicorn==21.2.0
 gevent==22.10.2
 
 # Video and Multimedia Processing
 ffmpeg-python==0.2.0
 python-ffmpeg==1.0.14
-opencv-python-headless==4.8.1.78  # Headless version for server deployment
+opencv-python-headless==4.8.0.76  # Headless version for server deployment
 moviepy==1.0.3
 python-magic==0.4.27
 

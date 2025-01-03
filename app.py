@@ -1045,7 +1045,9 @@ def upload():
     logging.info(f"Request Method: {request.method}")
     logging.info(f"Current User: {current_user.id} ({current_user.username})")
     
-    # Log request details
+    # Log all request details
+    logging.info("Upload Request Details:")
+    logging.info(f"Request Method: {request.method}")
     logging.info("Request Form Data:")
     for key, value in request.form.items():
         logging.info(f"  {key}: {value}")
@@ -1053,6 +1055,19 @@ def upload():
     logging.info("Request Files:")
     for key, file in request.files.items():
         logging.info(f"  {key}: {file.filename}")
+        logging.info(f"  {key} Content Type: {file.content_type}")
+        logging.info(f"  {key} Headers: {file.headers}")
+
+    # Check for file sources
+    file_sources = list(request.files.keys())
+    logging.info(f"File Sources: {file_sources}")
+
+    # Comprehensive file validation
+    if 'movie' not in request.files:
+        logging.error("No movie file part in the request")
+        logging.error(f"Available file sources: {list(request.files.keys())}")
+        flash('No file part. Please select a movie to upload.', 'danger')
+        return redirect(request.url)
 
     try:
         # Check if user is logged in

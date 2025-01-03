@@ -1319,32 +1319,9 @@ def upload():
     Enhanced video upload route with comprehensive error handling and logging
     """
     try:
-        # Diagnostic logging for upload route access
-        logging.info("=" * 50)
-        logging.info("Upload Route Accessed")
-        logging.info(f"Request Method: {request.method}")
-        logging.info(f"Current User: {current_user.is_authenticated}")
-        logging.info(f"Current User ID: {current_user.id}")
-        logging.info(f"Current Username: {current_user.username}")
-        
-        # Configure maximum file size (500 MB)
-        app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB limit
-        
-        # Detailed request logging
-        logging.info("Request Headers:")
-        for header, value in request.headers.items():
-            logging.info(f"  {header}: {value}")
-        
-        # Handle GET request
-        if request.method == 'GET':
-            return render_template('upload.html', languages=LANGUAGES)
-        
-        # Handle POST request for file upload
+        # Handle different request methods
         if request.method == 'POST':
-            # Check if this is an AJAX request
-            is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-            
-            # Validate file upload
+            # Check if file is present in the request
             if 'file' not in request.files:
                 return jsonify({
                     'status': 'error', 
@@ -1473,6 +1450,10 @@ def upload():
                     'status': 'error', 
                     'message': 'Invalid file type. Please upload a video file.'
                 }), 400
+        
+        elif request.method == 'GET':
+            # Render upload page for GET requests
+            return render_template('upload.html')
         
         # Unexpected method
         logging.warning(f"Unexpected request method: {request.method}")

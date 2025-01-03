@@ -1391,9 +1391,20 @@ def upload():
                     logging.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
                     logging.info(f"File Path: {file_path}")
                     
-                    # Generate unique thumbnail filename
-                    thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb_{uuid.uuid4().hex[:8]}.jpg"
+                    # Generate unique thumbnail filename with more entropy
+                    base_filename = os.path.splitext(filename)[0]
+                    unique_id = str(uuid.uuid4())
+                    thumbnail_filename = f"{base_filename}_thumb_{unique_id[:8]}_{int(datetime.now().timestamp())}.jpg"
+                    
+                    # Ensure unique thumbnail path
                     thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
+                    
+                    # Ensure the path is unique
+                    counter = 0
+                    while os.path.exists(thumbnail_path):
+                        counter += 1
+                        thumbnail_filename = f"{base_filename}_thumb_{unique_id[:8]}_{int(datetime.now().timestamp())}_{counter}.jpg"
+                        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
                     
                     logging.info(f"Thumbnail Path: {thumbnail_path}")
                     

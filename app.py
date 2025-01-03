@@ -386,9 +386,9 @@ def generate_thumbnail(video_path, output_path, size=(320, 240)):
             import numpy as np
             
             # Open video capture
-            cap = cv2.VideoCapture(video_path)
+            cap = cv2.VideoCapture(file_path)  # Use saved file path
             if not cap.isOpened():
-                logging.error(f"Could not open video file: {video_path}")
+                logging.error(f"Could not open video file: {file_path}")
                 return None
             
             # Read first frame
@@ -396,7 +396,7 @@ def generate_thumbnail(video_path, output_path, size=(320, 240)):
             cap.release()
             
             if not ret:
-                logging.error(f"Could not read first frame from: {video_path}")
+                logging.error(f"Could not read first frame from: {file_path}")
                 return None
             
             # Resize frame
@@ -1387,7 +1387,7 @@ def upload():
                             # FFmpeg thumbnail generation
                             ffmpeg_cmd = [
                                 'ffmpeg', 
-                                '-i', file,  # Input video
+                                '-i', file_path,  # Use saved file path
                                 '-ss', '00:00:01',  # Seek to 1 second
                                 '-vframes', '1',  # Extract 1 frame
                                 '-vf', 'scale=320:240',  # Resize
@@ -1436,7 +1436,7 @@ def upload():
                         try:
                             logging.info("Attempting OpenCV thumbnail generation...")
                             import cv2
-                            cap = cv2.VideoCapture(file)
+                            cap = cv2.VideoCapture(file_path)  # Use saved file path
                             
                             if not cap.isOpened():
                                 logging.error("OpenCV failed to open video file")

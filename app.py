@@ -342,16 +342,32 @@ def generate_thumbnail(file_path):
     Returns:
         str or None: Thumbnail filename or None if generation fails
     """
+    # Validate and normalize input path
+    file_path = os.path.abspath(file_path)
+    
     # Validate input
     if not file_path or not os.path.exists(file_path):
         logging.error(f"Invalid file path for thumbnail generation: {file_path}")
+        logging.error(f"Current working directory: {os.getcwd()}")
+        
+        # Additional debugging information
+        try:
+            # List contents of the upload directory
+            upload_dir = app.config['UPLOAD_FOLDER']
+            logging.info(f"Contents of upload directory {upload_dir}:")
+            for root, dirs, files in os.walk(upload_dir):
+                for file in files:
+                    logging.info(f"Found file: {os.path.join(root, file)}")
+        except Exception as list_error:
+            logging.error(f"Error listing upload directory: {list_error}")
+        
         return None
     
     # Debug logging for paths
     logging.info("=" * 50)
     logging.info("Thumbnail Generation Debug")
     logging.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
-    logging.info(f"File Path: {file_path}")
+    logging.info(f"Full File Path: {file_path}")
     
     # Generate unique thumbnail filename with more entropy
     filename = os.path.basename(file_path)
@@ -1369,97 +1385,109 @@ def upload():
                     logging.info(f"Original Filename: {file.filename}")
                     logging.info(f"File Path: {os.path.join(app.config['UPLOAD_FOLDER'], file.filename)}")
                     
-                    # Generate thumbnail
-                    thumbnail_filename = None
-                    
-                    try:
-                        # Debug logging for paths
-                        logging.info("=" * 50)
-                        logging.info("Thumbnail Generation Debug")
-                        logging.info(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
-                        logging.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
-                        logging.info(f"Original Filename: {file.filename}")
-                        logging.info(f"File Path: {os.path.join(app.config['UPLOAD_FOLDER'], file.filename)}")
-                        
-                        # Generate thumbnail using full file path
-                        thumbnail_filename = generate_thumbnail(os.path.join(app.config['UPLOAD_FOLDER'], file.filename))
-                    
-                    except Exception as thumbnail_error:
-                        logging.error(f"Thumbnail generation error: {thumbnail_error}")
-                    
                     # Secure filename
                     filename = secure_filename(file.filename)
                     
                     # Ensure upload folder exists
                     upload_folder = app.config['UPLOAD_FOLDER']
+                    thumbnail_folder = app.config['THUMBNAIL_FOLDER']
+                    
                     os.makedirs(upload_folder, exist_ok=True)
+                    os.makedirs(thumbnail_folder, exist_ok=True)
                     
                     # Full file paths
                     file_path = os.path.join(upload_folder, filename)
                     
-                    # Save the file with a timeout to prevent hanging
-                    def save_file_with_timeout():
-                        try:
-                            file.save(file_path)
-                        except Exception as save_error:
-                            logging.critical(f"File save error: {save_error}")
-                            raise
-                    
-                    # Use a timeout mechanism
-                    from concurrent.futures import ThreadPoolExecutor, TimeoutError
-                    
-                    with ThreadPoolExecutor() as executor:
-                        future = executor.submit(save_file_with_timeout)
-                        try:
-                            future.result(timeout=300)  # 5-minute timeout
-                        except TimeoutError:
-                            logging.critical("File upload timed out")
-                            if os.path.exists(file_path):
-                                os.unlink(file_path)
+                    try:
+                        # Save the file with a timeout to prevent hanging
+                        def save_file_with_timeout():
+                            try:
+                                file.save(file_path)
+                            except Exception as save_error:
+                                logging.critical(f"File save error: {save_error}")
+                                raise
+                        
+                        # Use a timeout mechanism
+                        from concurrent.futures import ThreadPoolExecutor, TimeoutError
+                        
+                        with ThreadPoolExecutor() as executor:
+                            future = executor.submit(save_file_with_timeout)
+                            try:
+                                future.result(timeout=300)  # 5-minute timeout
+                            except TimeoutError:
+                                logging.critical("File upload timed out")
+                                if os.path.exists(file_path):
+                                    os.unlink(file_path)
+                                return jsonify({
+                                    'status': 'error', 
+                                    'message': 'File upload timed out. Please try a smaller file.'
+                                }), 408
+                        
+                        logging.info(f"File saved successfully: {file_path}")
+                        
+                        # Validate video file
+                        video_validation = validate_video_file(file_path)
+                        
+                        if not video_validation['valid']:
+                            # Remove invalid file
+                            os.unlink(file_path)
+                            logging.error(f"Invalid video file: {video_validation}")
                             return jsonify({
                                 'status': 'error', 
-                                'message': 'File upload timed out. Please try a smaller file.'
-                            }), 408
-                    
-                    logging.info(f"File saved successfully: {file_path}")
-                    
-                    # Validate video file
-                    video_validation = validate_video_file(file_path)
-                    
-                    if not video_validation['valid']:
-                        # Remove invalid file
-                        os.unlink(file_path)
-                        logging.error(f"Invalid video file: {video_validation}")
+                                'message': video_validation.get('reason', 'Invalid video file')
+                            }), 400
+                        
+                        # Prepare movie metadata
+                        title = request.form.get('title', filename)
+                        language = request.form.get('language', 'English')
+                        
+                        # Generate thumbnail
+                        thumbnail_filename = None
+                        
+                        try:
+                            # Debug logging for paths
+                            logging.info("=" * 50)
+                            logging.info("Thumbnail Generation Debug")
+                            logging.info(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
+                            logging.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
+                            logging.info(f"Original Filename: {file.filename}")
+                            logging.info(f"Saved Filename: {filename}")
+                            logging.info(f"Full File Path: {file_path}")
+                            
+                            # Generate thumbnail using full file path
+                            thumbnail_filename = generate_thumbnail(file_path)
+                            
+                            # Log thumbnail generation result
+                            if thumbnail_filename:
+                                logging.info(f"Thumbnail generated: {thumbnail_filename}")
+                            else:
+                                logging.warning("Failed to generate thumbnail")
+                        
+                        except Exception as thumbnail_error:
+                            logging.error(f"Thumbnail generation error: {thumbnail_error}")
+                            logging.error(traceback.format_exc())
+                        
+                        # Create movie record
+                        new_movie = Movie(
+                            title=title, 
+                            filename=filename, 
+                            thumbnail=thumbnail_filename, 
+                            language=language, 
+                            user_id=current_user.id
+                        )
+                        
+                        # Add and commit to database
+                        db.session.add(new_movie)
+                        db.session.commit()
+                        
+                        logging.info(f"Movie uploaded successfully: {filename}")
+                        
+                        # Return success response
                         return jsonify({
-                            'status': 'error', 
-                            'message': video_validation.get('reason', 'Invalid video file')
-                        }), 400
-                    
-                    # Prepare movie metadata
-                    title = request.form.get('title', filename)
-                    language = request.form.get('language', 'English')
-                    
-                    # Create movie record
-                    new_movie = Movie(
-                        title=title, 
-                        filename=filename, 
-                        thumbnail=thumbnail_filename, 
-                        language=language, 
-                        user_id=current_user.id
-                    )
-                    
-                    # Add and commit to database
-                    db.session.add(new_movie)
-                    db.session.commit()
-                    
-                    logging.info(f"Movie uploaded successfully: {filename}")
-                    
-                    # Return success response
-                    return jsonify({
-                        'status': 'success', 
-                        'message': 'Movie uploaded successfully!',
-                        'movie_id': new_movie.id
-                    }), 201
+                            'status': 'success', 
+                            'message': 'Movie uploaded successfully!',
+                            'movie_id': new_movie.id
+                        }), 201
                 
                 except Exception as upload_error:
                     # Rollback database transaction

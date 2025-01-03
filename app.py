@@ -13,6 +13,7 @@ import secrets
 import sys
 import traceback
 import inspect  # Add inspect module import
+import uuid  # Add uuid import
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode
 import shutil

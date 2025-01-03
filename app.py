@@ -7,7 +7,7 @@ import tempfile
 import mimetypes
 import subprocess
 from datetime import datetime, timedelta
-from urllib.parse import urlparse, parse_qs, unquote, urlencode
+from urllib.parse import urlparse, parse_qs, unquote, parse_qsl
 
 # Flask and Web Framework Imports
 from flask import (
@@ -607,6 +607,24 @@ def safe_convert_video(file_path, output_path=None):
     
     logging.error(f"All video conversion methods failed: {last_error}")
     return file_path
+
+def safe_url_decode(query_string, keep_blank_values=True):
+    """
+    Safely decode URL-encoded query string
+    
+    Args:
+        query_string (str): URL-encoded query string
+        keep_blank_values (bool): Whether to keep blank values
+    
+    Returns:
+        dict: Decoded query parameters
+    """
+    try:
+        # Use parse_qs for dictionary with lists
+        return parse_qs(query_string, keep_blank_values=keep_blank_values)
+    except Exception as e:
+        logging.error(f"URL decoding error: {e}")
+        return {}
 
 @app.route('/stream/<filename>')
 def stream(filename):

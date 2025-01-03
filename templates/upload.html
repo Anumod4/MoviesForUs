@@ -146,6 +146,10 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         xhr.open('POST', uploadForm.action, true);
+        
+        // Add XMLHttpRequest header
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        
         xhr.send(formData);
     });
 });

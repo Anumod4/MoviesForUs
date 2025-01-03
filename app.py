@@ -1376,18 +1376,18 @@ def upload():
                     # Full file paths
                     file_path = os.path.join(upload_folder, filename)
                     
+                    # Save the file with a timeout to prevent hanging
+                    def save_file_with_timeout():
+                        try:
+                            file.save(file_path)
+                        except Exception as save_error:
+                            logging.critical(f"File save error: {save_error}")
+                            raise
+                    
+                    # Use a timeout mechanism
+                    from concurrent.futures import ThreadPoolExecutor, TimeoutError
+                    
                     try:
-                        # Save the file with a timeout to prevent hanging
-                        def save_file_with_timeout():
-                            try:
-                                file.save(file_path)
-                            except Exception as save_error:
-                                logging.critical(f"File save error: {save_error}")
-                                raise
-                        
-                        # Use a timeout mechanism
-                        from concurrent.futures import ThreadPoolExecutor, TimeoutError
-                        
                         with ThreadPoolExecutor() as executor:
                             future = executor.submit(save_file_with_timeout)
                             try:
@@ -1400,90 +1400,72 @@ def upload():
                                     'status': 'error', 
                                     'message': 'File upload timed out. Please try a smaller file.'
                                 }), 408
-                        
-                        logging.info(f"File saved successfully: {file_path}")
-                        
-                        # Validate video file
-                        video_validation = validate_video_file(file_path)
-                        
-                        if not video_validation['valid']:
-                            # Remove invalid file
-                            os.unlink(file_path)
-                            logging.error(f"Invalid video file: {video_validation}")
-                            return jsonify({
-                                'status': 'error', 
-                                'message': video_validation.get('reason', 'Invalid video file')
-                            }), 400
-                        
-                        # Prepare movie metadata
-                        title = request.form.get('title', filename)
-                        language = request.form.get('language', 'English')
-                        
-                        # Generate thumbnail
-                        thumbnail_filename = None
-                        
-                        try:
-                            # Debug logging for paths
-                            logging.info("=" * 50)
-                            logging.info("Thumbnail Generation Debug")
-                            logging.info(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
-                            logging.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
-                            logging.info(f"Original Filename: {file.filename}")
-                            logging.info(f"Saved Filename: {filename}")
-                            logging.info(f"Full File Path: {file_path}")
-                            
-                            # Generate thumbnail using full file path
-                            thumbnail_filename = generate_thumbnail(file_path)
-                            
-                            # Log thumbnail generation result
-                            if thumbnail_filename:
-                                logging.info(f"Thumbnail generated: {thumbnail_filename}")
-                            else:
-                                logging.warning("Failed to generate thumbnail")
-                        
-                        except Exception as thumbnail_error:
-                            logging.error(f"Thumbnail generation error: {thumbnail_error}")
-                            logging.error(traceback.format_exc())
-                        
-                        # Create movie record
-                        new_movie = Movie(
-                            title=title, 
-                            filename=filename, 
-                            thumbnail=thumbnail_filename, 
-                            language=language, 
-                            user_id=current_user.id
-                        )
-                        
-                        # Add and commit to database
-                        db.session.add(new_movie)
-                        db.session.commit()
-                        
-                        logging.info(f"Movie uploaded successfully: {filename}")
-                        
-                        # Return success response
-                        return jsonify({
-                            'status': 'success', 
-                            'message': 'Movie uploaded successfully!',
-                            'movie_id': new_movie.id
-                        }), 201
-                    
-                    except Exception as upload_error:
-                        # Rollback database transaction
-                        db.session.rollback()
-                        
-                        # Remove uploaded file if it exists
+                    except Exception as thread_error:
+                        logging.error(f"Thread execution error: {thread_error}")
                         if os.path.exists(file_path):
                             os.unlink(file_path)
-                        
-                        # Log the full error
-                        logging.critical(f"Upload error: {upload_error}")
-                        logging.critical(traceback.format_exc())
-                        
-                        # Return error response
                         return jsonify({
                             'status': 'error', 
-                            'message': 'An unexpected error occurred during upload. Please try again.'
+                            'message': f'Thread execution error: {thread_error}'
                         }), 500
+                    
+                    logging.info(f"File saved successfully: {file_path}")
+                    
+                    # Validate video file
+                    video_validation = validate_video_file(file_path)
+                    
+                    if not video_validation['valid']:
+                        # Remove invalid file
+                        os.unlink(file_path)
+                        logging.error(f"Invalid video file: {video_validation}")
+                        return jsonify({
+                            'status': 'error', 
+                            'message': video_validation.get('reason', 'Invalid video file')
+                        }), 400
+                    
+                    # Prepare movie metadata
+                    movie_title = request.form.get('title', filename)
+                    movie_language = request.form.get('language', 'English')
+                    
+                    # Generate thumbnail
+                    try:
+                        thumbnail_path = generate_thumbnail(file_path)
+                    except Exception as thumbnail_error:
+                        logging.warning(f"Thumbnail generation failed: {thumbnail_error}")
+                        thumbnail_path = None
+                    
+                    # Create movie record
+                    new_movie = Movie(
+                        title=movie_title,
+                        filename=filename,
+                        thumbnail=thumbnail_path,
+                        language=movie_language,
+                        user_id=current_user.id
+                    )
+                    
+                    # Add and commit to database
+                    db.session.add(new_movie)
+                    db.session.commit()
+                    
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'Movie uploaded successfully',
+                        'movie_id': new_movie.id
+                    }), 201
+                
+                except Exception as upload_error:
+                    # Rollback database transaction
+                    db.session.rollback()
+                    
+                    # Remove uploaded file if it exists
+                    if os.path.exists(file_path):
+                        os.unlink(file_path)
+                    
+                    logging.error(f"Movie upload error: {upload_error}")
+                    return jsonify({
+                        'status': 'error',
+                        'message': f'Upload failed: {str(upload_error)}'
+                    }), 500
             
             else:
                 # Invalid file type

@@ -16,6 +16,15 @@ import inspect  # Add inspect module import
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode
 
+# Additional imports for video validation
+import os
+import logging
+import traceback
+import mimetypes
+from flask import request, jsonify, flash, redirect, url_for
+from werkzeug.utils import secure_filename
+from moviepy.editor import VideoFileClip
+
 # Flask and Web Framework Imports
 from flask import (
     Flask, request, render_template, redirect, url_for, 
@@ -366,130 +375,77 @@ def is_convertible_video(filename):
 
 def validate_video_file(file_path):
     """
-    Comprehensive video file validation with multiple detection methods
+    Comprehensive video file validation
     
     Args:
-        file_path (str): Path to the video file
+        file_path (str): Path to the video file to validate
     
     Returns:
-        dict: Validation results with detailed information
+        dict: Validation results with 'valid' boolean and optional 'reason'
     """
     try:
-        # Basic file checks
+        # Check file existence
         if not os.path.exists(file_path):
             return {
                 'valid': False, 
-                'reason': 'File does not exist',
-                'details': f'Path: {file_path}'
+                'reason': 'File does not exist'
             }
         
+        # Check file size (max 2GB)
+        max_file_size = 2 * 1024 * 1024 * 1024  # 2GB
         file_size = os.path.getsize(file_path)
-        if file_size == 0:
+        if file_size > max_file_size:
             return {
                 'valid': False, 
-                'reason': 'Empty file',
-                'details': f'Size: {file_size} bytes'
+                'reason': f'File too large. Max size is 2GB. Current size: {file_size / (1024*1024):.2f} MB'
             }
         
-        # Multiple MIME type detection methods
-        mime_type = None
-        
-        # Method 1: python-magic
+        # Use moviepy to validate video
         try:
-            import magic
-            mime_type = magic.from_file(file_path, mime=True)
-        except ImportError:
-            logging.warning("python-magic not installed. Falling back to alternative detection.")
-        
-        # Method 2: mimetypes fallback
-        if not mime_type:
-            mime_type = mimetypes.guess_type(file_path)[0]
-        
-        # Method 3: System FFprobe detection
-        if not mime_type:
-            try:
-                # Use subprocess to run ffprobe
-                ffprobe_output = subprocess.check_output([
-                    'ffprobe', 
-                    '-v', 'error', 
-                    '-select_streams', 'v:0', 
-                    '-count_packets',
-                    '-show_entries', 
-                    'stream=codec_type,width,height,duration,nb_read_packets', 
-                    '-of', 'csv=p=0', 
-                    file_path
-                ], universal_newlines=True, stderr=subprocess.STDOUT).strip()
+            with VideoFileClip(file_path) as video:
+                # Check video duration (max 3 hours)
+                max_duration = 3 * 60 * 60  # 3 hours in seconds
+                if video.duration > max_duration:
+                    return {
+                        'valid': False, 
+                        'reason': f'Video too long. Max duration is 3 hours. Current duration: {video.duration/60:.2f} minutes'
+                    }
                 
-                # If output is not empty, it's a valid video
-                if ffprobe_output:
-                    mime_type = 'video/unknown'
-            except (subprocess.CalledProcessError, FileNotFoundError) as e:
-                logging.warning(f"FFprobe detection failed: {e}")
+                # Check video resolution
+                width, height = video.size
+                if width < 640 or height < 360:
+                    return {
+                        'valid': False, 
+                        'reason': f'Low resolution. Minimum 640x360 required. Current: {width}x{height}'
+                    }
+                
+                # Additional metadata
+                video_details = {
+                    'valid': True,
+                    'duration': video.duration,
+                    'width': width,
+                    'height': height,
+                    'fps': video.fps
+                }
+                
+                return video_details
         
-        # Supported video MIME types
-        supported_mime_types = [
-            'video/mp4', 'video/x-matroska', 'video/avi', 
-            'video/x-msvideo', 'video/quicktime', 'video/webm',
-            'video/x-ms-wmv', 'video/mpeg', 'video/unknown'
-        ]
-        
-        if not mime_type or mime_type not in supported_mime_types:
+        except Exception as video_error:
+            logging.error(f"Video processing error: {video_error}")
+            logging.error(traceback.format_exc())
+            
             return {
                 'valid': False, 
-                'reason': 'Unsupported video format',
-                'details': f'Detected MIME: {mime_type or "Unknown"}'
+                'reason': f'Unable to process video: {str(video_error)}'
             }
-        
-        # Optional: Basic video metadata extraction
-        metadata = {}
-        try:
-            # Use FFprobe for more reliable metadata
-            ffprobe_cmd = [
-                'ffprobe', 
-                '-v', 'quiet', 
-                '-print_format', 'json', 
-                '-show_format', 
-                '-show_streams', 
-                file_path
-            ]
-            
-            ffprobe_result = subprocess.check_output(
-                ffprobe_cmd, 
-                universal_newlines=True, 
-                stderr=subprocess.STDOUT
-            )
-            
-            # Parse FFprobe JSON output
-            ffprobe_data = json.loads(ffprobe_result)
-            video_stream = next(
-                (stream for stream in ffprobe_data.get('streams', []) 
-                 if stream.get('codec_type') == 'video'), 
-                None
-            )
-            
-            if video_stream:
-                metadata = {
-                    'width': int(video_stream.get('width', 0)),
-                    'height': int(video_stream.get('height', 0)),
-                    'fps': float(eval(video_stream.get('avg_frame_rate', '0/1'))),
-                    'duration': float(ffprobe_data.get('format', {}).get('duration', 0))
-                }
-        except Exception as metadata_error:
-            logging.warning(f"Could not extract video metadata: {metadata_error}")
-        
-        return {
-            'valid': True,
-            'mime_type': mime_type,
-            'size': file_size,
-            'metadata': metadata
-        }
     
-    except Exception as e:
-        logging.error(f"Unexpected error validating video: {e}", exc_info=True)
+    except Exception as global_error:
+        logging.critical(f"Critical error in video validation: {global_error}")
+        logging.critical(traceback.format_exc())
+        
         return {
-            'valid': False,
-            'reason': 'Unexpected validation error',
-            'details': str(e)
+            'valid': False, 
+            'reason': f'Unexpected validation error: {str(global_error)}'
         }
 
 def safe_convert_video(file_path, output_path=None):
@@ -1047,6 +1003,20 @@ def upload():
     logging.info(f"Current User ID: {current_user.id}")
     logging.info(f"Current Username: {current_user.username}")
     
+    # Detailed request logging
+    logging.info("Request Headers:")
+    for header, value in request.headers.items():
+        logging.info(f"  {header}: {value}")
+    
+    logging.info("Form Data:")
+    for key, value in request.form.items():
+        logging.info(f"  {key}: {value}")
+    
+    logging.info("Files:")
+    for key, file in request.files.items():
+        logging.info(f"  {key}: {file.filename}")
+        logging.info(f"  {key} Content Type: {file.content_type}")
+    
     # Handle POST request for file upload
     if request.method == 'POST':
         # Check if this is an AJAX request
@@ -1104,7 +1074,25 @@ def upload():
                     logging.info(f"File saved successfully: {file_path}")
                     
                     # Validate video file
-                    video_validation = validate_video_file(file_path)
+                    try:
+                        video_validation = validate_video_file(file_path)
+                    except Exception as validation_error:
+                        logging.error(f"Video validation error: {validation_error}")
+                        logging.error(traceback.format_exc())
+                        
+                        # Remove invalid file
+                        os.remove(file_path)
+                        
+                        error_message = f"Video validation failed: {str(validation_error)}"
+                        
+                        if is_ajax:
+                            return jsonify({
+                                'status': 'error', 
+                                'message': error_message
+                            }), 400
+                        else:
+                            flash(error_message, 'danger')
+                            return redirect(request.url)
                     
                     if not video_validation['valid']:
                         # Remove invalid file
@@ -1126,8 +1114,15 @@ def upload():
                     thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb.jpg"
                     thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
                     
-                    generate_thumbnail(file_path, thumbnail_path)
-                    logging.info(f"Thumbnail generated: {thumbnail_path}")
+                    try:
+                        generate_thumbnail(file_path, thumbnail_path)
+                        logging.info(f"Thumbnail generated: {thumbnail_path}")
+                    except Exception as thumb_error:
+                        logging.error(f"Thumbnail generation error: {thumb_error}")
+                        logging.error(traceback.format_exc())
+                        
+                        # Optional: continue without thumbnail
+                        thumbnail_filename = None
 
                     # Prepare movie metadata
                     new_movie = Movie(
@@ -1167,7 +1162,7 @@ def upload():
                         # Remove uploaded files on database error
                         if os.path.exists(file_path):
                             os.remove(file_path)
-                        if os.path.exists(thumbnail_path):
+                        if thumbnail_filename and os.path.exists(thumbnail_path):
                             os.remove(thumbnail_path)
                         
                         error_message = 'Failed to save movie to database.'
@@ -1221,7 +1216,7 @@ def upload():
             logging.critical(f"Critical error in upload route: {global_error}")
             logging.critical(traceback.format_exc())
             
-            error_message = 'An unexpected error occurred. Please try again.'
+            error_message = f'An unexpected error occurred: {str(global_error)}'
             
             if is_ajax:
                 return jsonify({

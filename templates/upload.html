@@ -85,6 +85,22 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Verify required fields
+        const titleInput = document.getElementById('movieTitle');
+        const languageInput = document.getElementById('movieLanguage');
+
+        if (!titleInput.value.trim()) {
+            alert('Please enter a movie title.');
+            titleInput.focus();
+            return;
+        }
+
+        if (!languageInput.value) {
+            alert('Please select a language.');
+            languageInput.focus();
+            return;
+        }
+
         const xhr = new XMLHttpRequest();
 
         // Show progress container
@@ -111,23 +127,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 responseHeaders: xhr.getAllResponseHeaders()
             });
 
-            if (xhr.status === 200 || xhr.status === 302) {
-                // Successful upload
-                uploadProgressBar.classList.remove('bg-danger');
-                uploadProgressBar.classList.add('bg-success');
-                uploadProgressBar.style.width = '100%';
-                uploadProgressBar.textContent = '100%';
-                
-                // Redirect or show success message
-                window.location.href = "{{ url_for('index') }}";
-            } else {
-                // Upload failed
+            try {
+                const response = xhr.status === 200 ? JSON.parse(xhr.responseText) : null;
+
+                if (xhr.status === 200 || xhr.status === 302) {
+                    // Successful upload
+                    uploadProgressBar.classList.remove('bg-danger');
+                    uploadProgressBar.classList.add('bg-success');
+                    uploadProgressBar.style.width = '100%';
+                    uploadProgressBar.textContent = '100%';
+                    
+                    // Redirect or show success message
+                    window.location.href = "{{ url_for('index') }}";
+                } else {
+                    // Upload failed
+                    uploadProgressBar.classList.remove('bg-success');
+                    uploadProgressBar.classList.add('bg-danger');
+                    
+                    // Detailed error handling
+                    const errorMessage = response && response.message 
+                        ? response.message 
+                        : `Upload Failed: ${xhr.status} - ${xhr.responseText}`;
+                    
+                    uploadProgressBar.textContent = 'Upload Failed';
+                    alert(errorMessage);
+                }
+            } catch (parseError) {
+                console.error('Error parsing response:', parseError);
                 uploadProgressBar.classList.remove('bg-success');
                 uploadProgressBar.classList.add('bg-danger');
-                uploadProgressBar.textContent = 'Upload Failed';
-                
-                // Display error details
-                alert(`Upload Failed: ${xhr.status} - ${xhr.responseText}`);
+                uploadProgressBar.textContent = 'Unexpected Error';
+                alert(`Unexpected error: ${xhr.responseText}`);
             }
         };
 
@@ -143,6 +173,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 status: xhr.status,
                 responseText: xhr.responseText
             });
+
+            alert('Network error. Please check your connection and try again.');
         };
 
         xhr.open('POST', uploadForm.action, true);

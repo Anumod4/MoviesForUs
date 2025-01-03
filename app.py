@@ -1043,11 +1043,14 @@ def upload():
     logging.info("=" * 50)
     logging.info("Upload Route Accessed")
     logging.info(f"Request Method: {request.method}")
-    logging.info(f"Current User: {current_user.id} ({current_user.username})")
+    logging.info(f"Current User: {current_user.is_authenticated}")
     
-    # Log all request details
-    logging.info("Upload Request Details:")
-    logging.info(f"Request Method: {request.method}")
+    # Log all request details with maximum verbosity
+    logging.info("Complete Request Details:")
+    logging.info(f"Request Headers: {dict(request.headers)}")
+    logging.info(f"Request Content Type: {request.content_type}")
+    logging.info(f"Request Content Length: {request.content_length}")
+    
     logging.info("Request Form Data:")
     for key, value in request.form.items():
         logging.info(f"  {key}: {value}")
@@ -1062,6 +1065,23 @@ def upload():
     file_sources = list(request.files.keys())
     logging.info(f"File Sources: {file_sources}")
 
+    # Comprehensive file validation with explicit error handling
+    if not current_user.is_authenticated:
+        logging.warning("Unauthorized upload attempt")
+        error_message = "Please log in to upload videos."
+        
+        # Differentiate between AJAX and traditional requests
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            # AJAX request
+            return jsonify({
+                'status': 'error', 
+                'message': error_message
+            }), 401
+        else:
+            # Traditional form submission
+            flash(error_message, 'danger')
+            return redirect(url_for('login'))
+
     # Comprehensive file validation
     if 'movie' not in request.files:
         logging.error("No movie file part in the request")
@@ -1069,14 +1089,14 @@ def upload():
         
         # Provide a more detailed error response
         error_message = "No movie file uploaded. Please select a file to upload."
+        
+        # Differentiate between AJAX and traditional requests
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            # AJAX request
             return jsonify({
                 'status': 'error', 
                 'message': error_message
             }), 400
         else:
-            # Traditional form submission
             flash(error_message, 'danger')
             return redirect(request.url)
 

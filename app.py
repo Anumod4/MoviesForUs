@@ -635,11 +635,13 @@ def safe_url_decode(query_string, keep_blank_values=True):
     except Exception as e:
         logging.error(f"URL decoding error: {e}")
         return {}
+
 # Generate a secure random secret key
 secret_key = secrets.token_hex(32)
 
 # Generate a secure random token
 random_token = secrets.token_urlsafe(16)
+
 @app.route('/stream/<filename>')
 def stream(filename):
     """
@@ -1004,61 +1006,114 @@ def index():
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def upload():
-    if request.method == 'POST':
-        if 'movie' not in request.files:
-            flash('No file selected', 'danger')
-            return redirect(request.url)
-        
-        movie_file = request.files['movie']
-        if movie_file.filename == '':
-            flash('No file selected', 'danger')
-            return redirect(request.url)
-        
-        if movie_file:
-            # Generate unique filename for video
-            original_filename = secure_filename(movie_file.filename)
-            unique_video_filename = f"{uuid.uuid4()}_{original_filename}"
-            video_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_video_filename)
-            movie_file.save(video_path)
-            
-            # Handle custom thumbnail
-            custom_thumbnail = request.files.get('thumbnail')
-            thumbnail_filename = None
-            
-            if custom_thumbnail and custom_thumbnail.filename:
-                # User uploaded a custom thumbnail
-                original_thumb_filename = secure_filename(custom_thumbnail.filename)
-                unique_thumb_filename = f"{uuid.uuid4()}_{original_thumb_filename}"
-                thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], unique_thumb_filename)
-                custom_thumbnail.save(thumbnail_path)
-                thumbnail_filename = unique_thumb_filename
+    """
+    Enhanced video upload route with comprehensive error handling
+    """
+    try:
+        # Logging entry point
+        logging.info(f"Upload route accessed. Method: {request.method}")
+        logging.info(f"Request files: {request.files}")
+        logging.info(f"Request form data: {request.form}")
+
+        # Check if user is logged in
+        if not current_user.is_authenticated:
+            logging.warning("Unauthorized upload attempt")
+            flash('Please log in to upload videos.', 'danger')
+            return redirect(url_for('login'))
+
+        # Handle POST request
+        if request.method == 'POST':
+            # Log detailed request information
+            logging.info("Processing upload POST request")
+
+            # Check if file is present in the request
+            if 'file' not in request.files:
+                logging.error("No file part in the request")
+                flash('No file part', 'danger')
+                return redirect(request.url)
+
+            file = request.files['file']
+
+            # Check if filename is empty
+            if file.filename == '':
+                logging.error("No selected file")
+                flash('No selected file', 'danger')
+                return redirect(request.url)
+
+            # Additional logging for file details
+            logging.info(f"Uploaded file name: {file.filename}")
+            logging.info(f"Uploaded file content type: {file.content_type}")
+
+            # Validate file
+            if file and allowed_file(file.filename):
+                try:
+                    # Secure filename
+                    filename = secure_filename(file.filename)
+                    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+                    # Save the file
+                    file.save(file_path)
+                    logging.info(f"File saved to: {file_path}")
+
+                    # Validate video file
+                    video_validation = validate_video_file(file_path)
+                    
+                    if not video_validation['valid']:
+                        # Remove invalid file
+                        os.remove(file_path)
+                        logging.error(f"Video validation failed: {video_validation}")
+                        flash(f"Video processing error: {video_validation.get('reason', 'Unknown error')}", 'danger')
+                        return redirect(request.url)
+
+                    # Generate thumbnail
+                    thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], f"{os.path.splitext(filename)[0]}_thumb.jpg")
+                    generate_thumbnail(file_path, thumbnail_path)
+
+                    # Save movie metadata to database
+                    new_movie = Movie(
+                        title=request.form.get('title', filename),
+                        filename=filename,
+                        thumbnail=os.path.basename(thumbnail_path),
+                        language=request.form.get('language', 'Unknown'),
+                        user_id=current_user.id
+                    )
+                    db.session.add(new_movie)
+                    db.session.commit()
+
+                    logging.info(f"Movie uploaded successfully: {filename}")
+                    flash('Video uploaded successfully!', 'success')
+                    return redirect(url_for('index'))
+
+                except Exception as e:
+                    # Comprehensive error logging
+                    logging.error(f"Upload error: {str(e)}")
+                    logging.error(traceback.format_exc())
+                    
+                    # Rollback database session
+                    db.session.rollback()
+                    
+                    # Remove any partially uploaded files
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                    
+                    flash(f'Upload failed: {str(e)}', 'danger')
+                    return redirect(request.url)
+
             else:
-                # Generate automatic thumbnail
-                thumbnail_filename = f"{uuid.uuid4()}_thumbnail.jpg"
-                thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
-                
-                if not generate_thumbnail(video_path, thumbnail_path):
-                    # Fallback if thumbnail generation fails
-                    thumbnail_filename = None
-            
-            # Get language from form
-            language = request.form.get('language', 'Other')
-            
-            # Save movie details
-            new_movie = Movie(
-                title=request.form.get('title'),
-                filename=unique_video_filename,
-                thumbnail=thumbnail_filename,
-                language=language,
-                user_id=current_user.id
-            )
-            db.session.add(new_movie)
-            db.session.commit()
-            
-            flash('Movie uploaded successfully!', 'success')
-            return redirect(url_for('index'))
-    
-    return render_template('upload.html', languages=LANGUAGES)
+                logging.warning(f"Invalid file type: {file.filename}")
+                flash('Invalid file type. Please upload a valid video.', 'danger')
+                return redirect(request.url)
+
+        # Render upload page for GET request
+        return render_template('upload.html', languages=LANGUAGES)
+
+    except Exception as e:
+        # Global error handling
+        logging.critical(f"Critical error in upload route: {str(e)}")
+        logging.critical(traceback.format_exc())
+        
+        flash('An unexpected error occurred. Please try again.', 'danger')
+        return redirect(url_for('index'))
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))

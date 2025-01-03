@@ -45,6 +45,7 @@
                         <a href="{{ url_for('play_movie', movie_id=movie.id) }}" class="thumbnail-link">
                             <img src="{{ url_for('serve_thumbnail', filename=movie.thumbnail) }}" 
                                  alt="{{ movie.title }} Thumbnail"
+                                 class="movie-thumbnail-img"
                                  onerror="this.onerror=null; this.src='{{ url_for('static', filename='default_thumbnail.jpg') }}';">
                             <div class="play-overlay">
                                 <i class="fas fa-play-circle"></i>
@@ -54,7 +55,8 @@
                         <div class="no-thumbnail">
                             <a href="{{ url_for('play_movie', movie_id=movie.id) }}" class="thumbnail-link">
                                 <img src="{{ url_for('static', filename='default_thumbnail.jpg') }}" 
-                                     alt="Default Thumbnail">
+                                     alt="Default Thumbnail"
+                                     class="movie-thumbnail-img">
                                 <div class="play-overlay">
                                     <i class="fas fa-play-circle"></i>
                                 </div>

@@ -1105,6 +1105,12 @@ def edit_movie(movie_id):
                         original_filename = secure_filename(thumbnail_file.filename)
                         base_filename, ext = os.path.splitext(original_filename)
                         
+                        # Ensure the extension is an image
+                        if ext.lower() not in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+                            logging.warning(f"Invalid thumbnail file type: {ext}")
+                            flash('Invalid thumbnail file type. Please upload an image.', 'danger')
+                            continue
+                        
                         # Create unique filename
                         unique_id = str(uuid.uuid4())[:8]
                         unique_thumb_filename = f"{base_filename}_{unique_id}{ext}"
@@ -1119,13 +1125,21 @@ def edit_movie(movie_id):
                         # Save the uploaded thumbnail
                         thumbnail_file.save(static_thumbnail_path)
                         
-                        # Verify file was saved
-                        if os.path.exists(static_thumbnail_path):
-                            # Update movie record with new thumbnail
-                            movie.thumbnail = unique_thumb_filename
-                            logging.info(f"New thumbnail saved: {static_thumbnail_path}")
-                        else:
-                            logging.error(f"Failed to save uploaded thumbnail: {static_thumbnail_path}")
+                        # Verify file was saved and is a valid image
+                        try:
+                            from PIL import Image
+                            with Image.open(static_thumbnail_path) as img:
+                                img.verify()  # Verify the image
+                        except Exception as img_error:
+                            logging.error(f"Invalid image file: {img_error}")
+                            # Remove the invalid file
+                            os.remove(static_thumbnail_path)
+                            flash('Invalid image file. Please upload a valid image.', 'danger')
+                            continue
+                        
+                        # Update movie record with new thumbnail
+                        movie.thumbnail = unique_thumb_filename
+                        logging.info(f"New thumbnail saved: {static_thumbnail_path}")
             
             except Exception as thumbnail_error:
                 logging.error(f"Thumbnail upload error: {thumbnail_error}")

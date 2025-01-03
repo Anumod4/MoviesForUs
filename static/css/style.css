@@ -210,3 +210,15 @@ img, video {
 .btn-delete:hover::before {
     left: 0;
 }
+
+.movie-thumbnail-img {
+    width: 100%;
+    height: 240px;
+    object-fit: cover;
+    border-radius: 8px;
+    transition: transform 0.3s ease;
+}
+
+.movie-thumbnail-img:hover {
+    transform: scale(1.05);
+}

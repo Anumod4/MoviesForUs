@@ -621,7 +621,7 @@ def safe_url_decode(query_string, keep_blank_values=True):
     """
     try:
         # Use parse_qs for dictionary with lists
-        return parse_qs(query_string, keep_blank_values=keep_blank_values)
+        return dict(parse_qsl(query_string, keep_blank_values=keep_blank_values))
     except Exception as e:
         logging.error(f"URL decoding error: {e}")
         return {}

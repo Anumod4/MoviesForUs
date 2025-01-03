@@ -130,15 +130,21 @@ document.addEventListener('DOMContentLoaded', function() {
             try {
                 const response = xhr.status === 200 ? JSON.parse(xhr.responseText) : null;
 
-                if (xhr.status === 200 || xhr.status === 302) {
+                // Handle different response scenarios
+                if (xhr.status === 200 && response && response.status === 'success') {
                     // Successful upload
                     uploadProgressBar.classList.remove('bg-danger');
                     uploadProgressBar.classList.add('bg-success');
                     uploadProgressBar.style.width = '100%';
                     uploadProgressBar.textContent = '100%';
                     
-                    // Redirect or show success message
-                    window.location.href = "{{ url_for('index') }}";
+                    // Show success message
+                    alert(response.message);
+                    
+                    // Redirect to index page
+                    if (response.redirect) {
+                        window.location.href = response.redirect;
+                    }
                 } else {
                     // Upload failed
                     uploadProgressBar.classList.remove('bg-success');
@@ -174,7 +180,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 responseText: xhr.responseText
             });
 
-            alert('Network error. Please check your connection and try again.');
+            // More detailed error logging
+            alert('Upload failed. Please check your connection and try again. Additional details logged in console.');
         };
 
         xhr.open('POST', uploadForm.action, true);

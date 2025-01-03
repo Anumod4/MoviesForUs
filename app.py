@@ -1047,7 +1047,192 @@ def upload():
     logging.info(f"Current User ID: {current_user.id}")
     logging.info(f"Current Username: {current_user.username}")
     
-    # Render upload template with languages
+    # Handle POST request for file upload
+    if request.method == 'POST':
+        # Check if this is an AJAX request
+        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        
+        try:
+            # Comprehensive file validation
+            if 'movie' not in request.files:
+                logging.error("No movie file part in the request")
+                error_message = "No movie file uploaded. Please select a file to upload."
+                
+                if is_ajax:
+                    return jsonify({
+                        'status': 'error', 
+                        'message': error_message
+                    }), 400
+                else:
+                    flash(error_message, 'danger')
+                    return redirect(request.url)
+
+            file = request.files['movie']
+
+            # Check filename
+            if file.filename == '':
+                logging.error("No selected file")
+                error_message = "No file selected. Please choose a movie to upload."
+                
+                if is_ajax:
+                    return jsonify({
+                        'status': 'error', 
+                        'message': error_message
+                    }), 400
+                else:
+                    flash(error_message, 'danger')
+                    return redirect(request.url)
+
+            # Validate file
+            if file and allowed_file(file.filename):
+                try:
+                    # Secure filename
+                    filename = secure_filename(file.filename)
+                    
+                    # Ensure upload folder exists
+                    upload_folder = app.config['UPLOAD_FOLDER']
+                    thumbnail_folder = app.config['THUMBNAIL_FOLDER']
+                    
+                    os.makedirs(upload_folder, exist_ok=True)
+                    os.makedirs(thumbnail_folder, exist_ok=True)
+                    
+                    # Full file paths
+                    file_path = os.path.join(upload_folder, filename)
+                    
+                    # Save the file
+                    file.save(file_path)
+                    logging.info(f"File saved successfully: {file_path}")
+                    
+                    # Validate video file
+                    video_validation = validate_video_file(file_path)
+                    
+                    if not video_validation['valid']:
+                        # Remove invalid file
+                        os.remove(file_path)
+                        logging.error(f"Video validation failed: {video_validation}")
+                        
+                        error_message = f"Video processing error: {video_validation.get('reason', 'Unknown error')}"
+                        
+                        if is_ajax:
+                            return jsonify({
+                                'status': 'error', 
+                                'message': error_message
+                            }), 400
+                        else:
+                            flash(error_message, 'danger')
+                            return redirect(request.url)
+
+                    # Generate thumbnail
+                    thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb.jpg"
+                    thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
+                    
+                    generate_thumbnail(file_path, thumbnail_path)
+                    logging.info(f"Thumbnail generated: {thumbnail_path}")
+
+                    # Prepare movie metadata
+                    new_movie = Movie(
+                        title=request.form.get('title', filename),
+                        filename=filename,
+                        thumbnail=thumbnail_filename,
+                        language=request.form.get('language', 'Unknown'),
+                        user_id=current_user.id
+                    )
+                    
+                    # Database transaction
+                    try:
+                        # Add and commit in a single transaction
+                        db.session.add(new_movie)
+                        db.session.commit()
+                        logging.info("Movie record saved to database successfully")
+                        
+                        # Prepare success response
+                        success_message = 'Video uploaded successfully!'
+                        
+                        if is_ajax:
+                            return jsonify({
+                                'status': 'success', 
+                                'message': success_message,
+                                'redirect': url_for('index')
+                            }), 200
+                        else:
+                            flash(success_message, 'success')
+                            return redirect(url_for('index'))
+
+                    except Exception as db_error:
+                        # Rollback transaction on error
+                        db.session.rollback()
+                        logging.error(f"Database save error: {db_error}")
+                        logging.error(traceback.format_exc())
+                        
+                        # Remove uploaded files on database error
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                        if os.path.exists(thumbnail_path):
+                            os.remove(thumbnail_path)
+                        
+                        error_message = 'Failed to save movie to database.'
+                        
+                        if is_ajax:
+                            return jsonify({
+                                'status': 'error', 
+                                'message': error_message
+                            }), 500
+                        else:
+                            flash(error_message, 'danger')
+                            return redirect(request.url)
+
+                except Exception as upload_error:
+                    # Comprehensive error logging
+                    logging.error(f"Upload process error: {upload_error}")
+                    logging.error(traceback.format_exc())
+                    
+                    # Remove any partially uploaded files
+                    if 'file_path' in locals() and os.path.exists(file_path):
+                        os.remove(file_path)
+                    if 'thumbnail_path' in locals() and os.path.exists(thumbnail_path):
+                        os.remove(thumbnail_path)
+                    
+                    error_message = f'Upload failed: {str(upload_error)}'
+                    
+                    if is_ajax:
+                        return jsonify({
+                            'status': 'error', 
+                            'message': error_message
+                        }), 500
+                    else:
+                        flash(error_message, 'danger')
+                        return redirect(request.url)
+
+            else:
+                logging.warning(f"Invalid file type: {file.filename}")
+                error_message = 'Invalid file type. Please upload a valid video.'
+                
+                if is_ajax:
+                    return jsonify({
+                        'status': 'error', 
+                        'message': error_message
+                    }), 400
+                else:
+                    flash(error_message, 'danger')
+                    return redirect(request.url)
+
+        except Exception as global_error:
+            # Global error handling
+            logging.critical(f"Critical error in upload route: {global_error}")
+            logging.critical(traceback.format_exc())
+            
+            error_message = 'An unexpected error occurred. Please try again.'
+            
+            if is_ajax:
+                return jsonify({
+                    'status': 'error', 
+                    'message': error_message
+                }), 500
+            else:
+                flash(error_message, 'danger')
+                return redirect(url_for('index'))
+
+    # Render upload page for GET request
     return render_template('upload.html', languages=LANGUAGES)
 
 @app.route('/debug_auth')

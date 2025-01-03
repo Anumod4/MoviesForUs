@@ -56,16 +56,36 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
 if not app.config['SECRET_KEY']:
     raise ValueError("No SECRET_KEY set for Flask application. Please set it in .env file.")
 
-# Logging configuration
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('app.log')
-    ]
-)
-logger = logging.getLogger(__name__)
+# Logging Configuration
+def configure_logging():
+    """
+    Configure comprehensive logging for the application
+    Ensures detailed logs for debugging and monitoring
+    """
+    # Ensure logs directory exists
+    log_dir = os.path.join(app.root_path, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,  # Capture all levels of logs
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            # File handler for persistent logging
+            logging.FileHandler(os.path.join(log_dir, 'app.log'), encoding='utf-8'),
+            # Console handler for immediate visibility
+            logging.StreamHandler()
+        ]
+    )
+
+    # Set SQLAlchemy logging to warning to reduce verbosity
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+
+    # Log application startup
+    logging.info("Application logging configured successfully")
+
+# Configure logging early in the application startup
+configure_logging()
 
 # Database Configuration with Enhanced Error Handling
 def configure_database():

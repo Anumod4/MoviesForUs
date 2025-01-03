@@ -1052,48 +1052,35 @@ def logout():
 def edit_movie(movie_id):
     """
     Edit movie details with comprehensive error handling and logging
+    
+    Args:
+        movie_id (int): ID of the movie to edit
+    
+    Returns:
+        Rendered edit movie template or redirect
     """
     try:
-        # Find the movie or return 404
-        movie = Movie.query.get_or_404(movie_id)
-        
-        # Logging for debugging
-        logging.info(f"Edit Movie Route Accessed")
-        logging.info(f"Movie ID: {movie_id}")
-        logging.info(f"Current User ID: {current_user.id}")
-        logging.info(f"Movie Owner ID: {movie.user_id}")
-        
-        # Ensure only the uploader can edit
-        if movie.user_id != current_user.id:
-            logging.warning(f"Unauthorized edit attempt by user {current_user.id} for movie {movie_id}")
-            flash('You are not authorized to edit this movie.', 'danger')
-            return redirect(url_for('index'))
+        # Fetch the movie, ensuring it belongs to the current user
+        movie = Movie.query.filter_by(id=movie_id, user_id=current_user.id).first_or_404()
         
         if request.method == 'POST':
-            # Validate input
+            # Extract form data
             title = request.form.get('title', '').strip()
-            language = request.form.get('language', '').strip()
+            language = request.form.get('language', 'English').strip()
             
-            # Input validation
+            # Validate title
             if not title:
-                logging.warning("Edit movie: Empty title")
                 flash('Movie title cannot be empty.', 'danger')
                 return render_template('edit_movie.html', 
                                        movie=movie, 
                                        languages=LANGUAGES)
             
-            if not language or language not in LANGUAGES:
-                logging.warning(f"Invalid language: {language}")
-                flash('Please select a valid language.', 'danger')
-                return render_template('edit_movie.html', 
-                                       movie=movie, 
-                                       languages=LANGUAGES)
-            
-            # Update movie details
+            # Update basic movie details
             movie.title = title
             movie.language = language
             
             # Thumbnail upload handling
+            thumbnail_uploaded = False
             try:
                 # Check if a thumbnail file is uploaded
                 if 'thumbnail' in request.files:
@@ -1109,7 +1096,9 @@ def edit_movie(movie_id):
                         if ext.lower() not in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
                             logging.warning(f"Invalid thumbnail file type: {ext}")
                             flash('Invalid thumbnail file type. Please upload an image.', 'danger')
-                            continue
+                            return render_template('edit_movie.html', 
+                                                   movie=movie, 
+                                                   languages=LANGUAGES)
                         
                         # Create unique filename
                         unique_id = str(uuid.uuid4())[:8]
@@ -1135,42 +1124,52 @@ def edit_movie(movie_id):
                             # Remove the invalid file
                             os.remove(static_thumbnail_path)
                             flash('Invalid image file. Please upload a valid image.', 'danger')
-                            continue
+                            return render_template('edit_movie.html', 
+                                                   movie=movie, 
+                                                   languages=LANGUAGES)
                         
                         # Update movie record with new thumbnail
                         movie.thumbnail = unique_thumb_filename
+                        thumbnail_uploaded = True
                         logging.info(f"New thumbnail saved: {static_thumbnail_path}")
             
             except Exception as thumbnail_error:
                 logging.error(f"Thumbnail upload error: {thumbnail_error}")
                 logging.error(traceback.format_exc())
+                flash('An error occurred while uploading the thumbnail.', 'danger')
+                return render_template('edit_movie.html', 
+                                       movie=movie, 
+                                       languages=LANGUAGES)
             
             try:
                 # Commit changes
                 db.session.commit()
-                logging.info(f"Movie {movie_id} updated successfully")
-                flash('Movie details updated successfully!', 'success')
+                
+                # Flash success message
+                if thumbnail_uploaded:
+                    flash('Movie details and thumbnail updated successfully!', 'success')
+                else:
+                    flash('Movie details updated successfully!', 'success')
+                
+                # Redirect to index or movie details
                 return redirect(url_for('index'))
             
             except Exception as db_error:
                 # Rollback in case of database error
                 db.session.rollback()
-                logging.error(f"Database error during movie update: {db_error}")
-                flash('An error occurred while updating the movie. Please try again.', 'danger')
-                return render_template('edit_movie.html', 
-                                       movie=movie, 
-                                       languages=LANGUAGES)
+                logging.error(f"Database error during movie edit: {db_error}")
+                flash('An error occurred while saving your changes.', 'danger')
         
-        # GET request: render edit page
+        # Render edit movie template for GET requests
         return render_template('edit_movie.html', 
                                movie=movie, 
                                languages=LANGUAGES)
     
-    except Exception as unexpected_error:
+    except Exception as e:
         # Catch any unexpected errors
-        logging.critical(f"Unexpected error in edit_movie: {unexpected_error}")
-        logging.critical(traceback.format_exc())
-        flash('An unexpected error occurred. Please try again.', 'danger')
+        logging.error(f"Unexpected error in edit_movie: {e}")
+        logging.error(traceback.format_exc())
+        flash('An unexpected error occurred.', 'danger')
         return redirect(url_for('index'))
 
 @app.route('/delete_movie/<int:movie_id>', methods=['POST'])

@@ -960,13 +960,19 @@ LANGUAGES = [
 @app.route('/')
 @login_required
 def index():
-    # Diagnostic logging for database query
-    logging.info("Accessing index route")
-    logging.info(f"Current User ID: {current_user.id}")
-    
+    # Enhanced diagnostic logging
+    logging.info("=" * 50)
+    logging.info("Index Route Accessed")
+    logging.info(f"Current User: {current_user.id} ({current_user.username})")
+    logging.info(f"User Authentication Status: {current_user.is_authenticated}")
+
     # Get search and filter parameters
     search_query = request.args.get('search', '').strip()
     language_filter = request.args.get('language', '')
+
+    # Log filter parameters
+    logging.info(f"Search Query: '{search_query}'")
+    logging.info(f"Language Filter: '{language_filter}'")
 
     # Start with all movies (not just current user's)
     movies_query = Movie.query
@@ -987,24 +993,35 @@ def index():
     movies = movies_query.order_by(Movie.id.desc()).all()
 
     # Comprehensive logging for debugging
-    logging.info(f"Total movies retrieved: {len(movies)}")
+    logging.info(f"Total Movies Retrieved: {len(movies)}")
     
     # Detailed logging for each movie
     for movie in movies:
-        logging.info(f"Movie Details - ID: {movie.id}, Title: {movie.title}, Filename: {movie.filename}, Thumbnail: {movie.thumbnail}, Language: {movie.language}, User ID: {movie.user_id}")
+        logging.info(f"Movie Details:")
+        logging.info(f"  ID: {movie.id}")
+        logging.info(f"  Title: {movie.title}")
+        logging.info(f"  Filename: {movie.filename}")
+        logging.info(f"  Thumbnail: {movie.thumbnail}")
+        logging.info(f"  Language: {movie.language}")
+        logging.info(f"  User ID: {movie.user_id}")
         
-        # Check if thumbnail exists
-        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail)
-        logging.info(f"Thumbnail path: {thumbnail_path}")
-        logging.info(f"Thumbnail exists: {os.path.exists(thumbnail_path) if movie.thumbnail else 'No thumbnail'}")
+        # Check thumbnail file existence
+        if movie.thumbnail:
+            thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail)
+            logging.info(f"  Thumbnail Path: {thumbnail_path}")
+            logging.info(f"  Thumbnail Exists: {os.path.exists(thumbnail_path)}")
 
     # Additional database query logging
     try:
         # Count total movies in the database
         total_movies_count = Movie.query.count()
-        logging.info(f"Total movies in database: {total_movies_count}")
+        logging.info(f"Total Movies in Database: {total_movies_count}")
     except Exception as count_error:
         logging.error(f"Error counting movies: {count_error}")
+
+    # Log rendering details
+    logging.info("Rendering Index Template")
+    logging.info("=" * 50)
 
     return render_template('index.html', 
                            movies=movies, 

@@ -642,6 +642,79 @@ secret_key = secrets.token_hex(32)
 # Generate a secure random token
 random_token = secrets.token_urlsafe(16)
 
+# Global Error Handling
+@app.errorhandler(500)
+def handle_500_error(e):
+    """
+    Global error handler for 500 Internal Server Errors
+    Provides detailed logging and a user-friendly error page
+    """
+    # Log the full traceback
+    logging.critical("500 Internal Server Error")
+    logging.critical(f"Error details: {str(e)}")
+    logging.critical(traceback.format_exc())
+
+    # Additional context logging
+    try:
+        logging.critical(f"Current User: {current_user.username if current_user.is_authenticated else 'Not Authenticated'}")
+        logging.critical(f"Request Method: {request.method}")
+        logging.critical(f"Request URL: {request.url}")
+        logging.critical(f"Request Headers: {request.headers}")
+        logging.critical(f"Request Form Data: {request.form}")
+        logging.critical(f"Request Files: {request.files}")
+    except Exception as context_error:
+        logging.error(f"Error logging additional context: {context_error}")
+
+    # Render a user-friendly error page
+    return render_template('error.html', 
+                           error_message="An unexpected error occurred. Our team has been notified.",
+                           error_code=500), 500
+
+# Add a custom error template if it doesn't exist
+def create_error_template():
+    """Create a generic error template if it doesn't exist"""
+    error_template_path = os.path.join(app.root_path, 'templates', 'error.html')
+    if not os.path.exists(error_template_path):
+        error_template_content = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ error_code }} - Error</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            padding: 50px; 
+            background-color: #f4f4f4; 
+        }
+        .error-container {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 30px;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        h1 { color: #e74c3c; }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h1>Error {{ error_code }}</h1>
+        <p>{{ error_message }}</p>
+        <p><a href="{{ url_for('index') }}">Return to Home</a></p>
+    </div>
+</body>
+</html>
+        """
+        with open(error_template_path, 'w') as f:
+            f.write(error_template_content)
+        logging.info(f"Created error template at {error_template_path}")
+
+# Call the function to ensure error template exists
+create_error_template()
+
 @app.route('/stream/<filename>')
 def stream(filename):
     """

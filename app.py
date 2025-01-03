@@ -117,12 +117,15 @@ def configure_database():
     try:
         # Test database connection
         with app.app_context():
+            # Import text for SQL expression
+            from sqlalchemy import text
+            
             # Explicitly create tables if they don't exist
             db.create_all()
             logging.info("Database tables created successfully")
             
-            # Test connection by checking session
-            db.session.execute('SELECT 1')
+            # Test connection by checking session using text()
+            db.session.execute(text('SELECT 1'))
             logging.info("Database connection successful")
     except Exception as conn_error:
         logging.error(f"Database connection test failed: {conn_error}")

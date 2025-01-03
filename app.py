@@ -1367,53 +1367,25 @@ def upload():
                     logging.info(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
                     logging.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
                     logging.info(f"Original Filename: {file.filename}")
+                    logging.info(f"File Path: {os.path.join(app.config['UPLOAD_FOLDER'], file.filename)}")
                     
-                    # Generate unique thumbnail filename with more entropy
-                    base_filename = os.path.splitext(file.filename)[0]
+                    # Generate thumbnail
+                    thumbnail_filename = None
                     
-                    # Use multiple sources of uniqueness
-                    unique_id = str(uuid.uuid4())
-                    timestamp = int(datetime.now().timestamp())
-                    random_suffix = secrets.token_hex(4)  # Additional randomness
-                    
-                    # Create initial thumbnail filename
-                    thumbnail_filename = f"{base_filename}_thumb_{unique_id[:8]}_{timestamp}_{random_suffix}.jpg"
-                    
-                    # Ensure unique thumbnail path
-                    thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
-                    
-                    # Extensive uniqueness check
-                    counter = 0
-                    while os.path.exists(thumbnail_path):
-                        counter += 1
-                        # Incorporate counter into filename
-                        thumbnail_filename = f"{base_filename}_thumb_{unique_id[:8]}_{timestamp}_{random_suffix}_{counter}.jpg"
-                        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
+                    try:
+                        # Debug logging for paths
+                        logging.info("=" * 50)
+                        logging.info("Thumbnail Generation Debug")
+                        logging.info(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
+                        logging.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
+                        logging.info(f"Original Filename: {file.filename}")
+                        logging.info(f"File Path: {os.path.join(app.config['UPLOAD_FOLDER'], file.filename)}")
                         
-                        # Prevent infinite loop
-                        if counter > 100:
-                            logging.error(f"Failed to generate unique thumbnail filename after {counter} attempts")
-                            thumbnail_filename = None
-                            break
+                        # Generate thumbnail using full file path
+                        thumbnail_filename = generate_thumbnail(os.path.join(app.config['UPLOAD_FOLDER'], file.filename))
                     
-                    # Validate thumbnail generation
-                    if thumbnail_filename is None:
-                        raise ValueError("Could not generate unique thumbnail filename")
-                    
-                    logging.info(f"Generated Thumbnail Path: {thumbnail_path}")
-                    
-                    # Debug directory permissions
-                    thumbnail_dir = app.config['THUMBNAIL_FOLDER']
-                    if not os.path.exists(thumbnail_dir):
-                        os.makedirs(thumbnail_dir, mode=0o755, exist_ok=True)
-                        logging.info(f"Created thumbnail directory: {thumbnail_dir}")
-                    
-                    # List existing thumbnails for debugging
-                    existing_thumbnails = [f for f in os.listdir(thumbnail_dir) if f.startswith(base_filename) and f.endswith('.jpg')]
-                    logging.info(f"Existing thumbnails for {base_filename}: {existing_thumbnails}")
-                    
-                    # Attempt thumbnail generation
-                    thumbnail_filename = generate_thumbnail(file_path=os.path.join(app.config['UPLOAD_FOLDER'], file.filename))
+                    except Exception as thumbnail_error:
+                        logging.error(f"Thumbnail generation error: {thumbnail_error}")
                     
                     # Secure filename
                     filename = secure_filename(file.filename)

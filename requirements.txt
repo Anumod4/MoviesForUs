@@ -26,7 +26,7 @@ gevent==22.10.2
 # Video and Multimedia Processing
 ffmpeg-python==0.2.0
 python-ffmpeg==1.0.14
-opencv-python-headless==4.7.0.72
+opencv-python-headless==4.8.1.78  # Headless version for server deployment
 moviepy==1.0.3
 python-magic==0.4.27
 

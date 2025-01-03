@@ -1,10 +1,11 @@
 services:
   - type: web
-    name: moviesforUs
+    name: moviesforus
     env: python
     region: oregon
     branch: main
     buildCommand: |
+      apt-get update && apt-get install -y ffmpeg
       python3 -m venv venv
       . venv/bin/activate
       pip install -r requirements.txt
@@ -14,7 +15,7 @@ services:
       gunicorn --worker-tmp-dir /dev/shm app:app
     envVars:
       - key: PYTHON_VERSION
-        value: 3.13.0
+        value: 3.11.0
       - key: PORT
         value: 10000
       - key: FLASK_ENV
@@ -43,7 +44,7 @@ services:
         value: static/thumbnails
     disk:
       name: uploads
-      mountPath: /opt/render/project/uploads
+      mountPath: /opt/render/project/src/static/uploads
       sizeGB: 10
 
 databases:

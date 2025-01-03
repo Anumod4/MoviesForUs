@@ -53,7 +53,8 @@
                         {% else %}
                         <div class="no-thumbnail">
                             <a href="{{ url_for('play_movie', movie_id=movie.id) }}" class="thumbnail-link">
-                                <i class="fas fa-film"></i>
+                                <img src="{{ url_for('static', filename='default_thumbnail.jpg') }}" 
+                                     alt="Default Thumbnail">
                                 <div class="play-overlay">
                                     <i class="fas fa-play-circle"></i>
                                 </div>

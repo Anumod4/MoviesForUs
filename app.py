@@ -1262,27 +1262,21 @@ def upload():
     logging.info(f"Current User ID: {current_user.id}")
     logging.info(f"Current Username: {current_user.username}")
     
+    # Configure maximum file size (500 MB)
+    app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB limit
+    
     # Detailed request logging
     logging.info("Request Headers:")
     for header, value in request.headers.items():
         logging.info(f"  {header}: {value}")
     
-    logging.info("Form Data:")
-    for key, value in request.form.items():
-        logging.info(f"  {key}: {value}")
-    
-    logging.info("Files:")
-    for key, file in request.files.items():
-        logging.info(f"  {key}: {file.filename}")
-        logging.info(f"  {key} Content Type: {file.content_type}")
-    
     # Handle POST request for file upload
     if request.method == 'POST':
-        # Check if this is an AJAX request
-        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-        
         try:
-            # Comprehensive file validation
+            # Check if this is an AJAX request
+            is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            
+            # Validate file upload
             if 'movie' not in request.files:
                 logging.error("No movie file part in the request")
                 error_message = "No movie file uploaded. Please select a file to upload."
@@ -1298,7 +1292,7 @@ def upload():
 
             file = request.files['movie']
 
-            # Check filename
+            # Validate filename
             if file.filename == '':
                 logging.error("No selected file")
                 error_message = "No file selected. Please choose a movie to upload."
@@ -1312,7 +1306,7 @@ def upload():
                     flash(error_message, 'danger')
                     return redirect(request.url)
 
-            # Validate file
+            # Validate file type and size
             if file and allowed_file(file.filename):
                 try:
                     # Secure filename
@@ -1328,187 +1322,159 @@ def upload():
                     # Full file paths
                     file_path = os.path.join(upload_folder, filename)
                     
-                    # Save the file
-                    file.save(file_path)
+                    # Save the file with a timeout to prevent hanging
+                    def save_file_with_timeout():
+                        try:
+                            file.save(file_path)
+                        except Exception as save_error:
+                            logging.critical(f"File save error: {save_error}")
+                            raise
+                    
+                    # Use a timeout mechanism
+                    from concurrent.futures import ThreadPoolExecutor, TimeoutError
+                    
+                    with ThreadPoolExecutor() as executor:
+                        future = executor.submit(save_file_with_timeout)
+                        try:
+                            future.result(timeout=300)  # 5-minute timeout
+                        except TimeoutError:
+                            logging.critical("File upload timed out")
+                            if os.path.exists(file_path):
+                                os.unlink(file_path)
+                            return jsonify({
+                                'status': 'error', 
+                                'message': 'File upload timed out. Please try a smaller file.'
+                            }), 408
+                    
                     logging.info(f"File saved successfully: {file_path}")
                     
                     # Validate video file
-                    try:
-                        video_validation = validate_video_file(file_path)
-                    except Exception as validation_error:
-                        logging.error(f"Video validation error: {validation_error}")
-                        logging.error(traceback.format_exc())
-                        
-                        # Remove invalid file
-                        os.remove(file_path)
-                        
-                        error_message = f"Video validation failed: {str(validation_error)}"
-                        
-                        if is_ajax:
-                            return jsonify({
-                                'status': 'error', 
-                                'message': error_message
-                            }), 400
-                        else:
-                            flash(error_message, 'danger')
-                            return redirect(request.url)
+                    video_validation = validate_video_file(file_path)
                     
                     if not video_validation['valid']:
                         # Remove invalid file
-                        os.remove(file_path)
-                        logging.error(f"Video validation failed: {video_validation}")
-                        
-                        error_message = f"Video processing error: {video_validation.get('reason', 'Unknown error')}"
-                        
-                        if is_ajax:
-                            return jsonify({
-                                'status': 'error', 
-                                'message': error_message
-                            }), 400
-                        else:
-                            flash(error_message, 'danger')
-                            return redirect(request.url)
-
-                    # Generate thumbnail
-                    thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumbnail.jpg"
-                    thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
+                        os.unlink(file_path)
+                        logging.error(f"Invalid video file: {video_validation}")
+                        return jsonify({
+                            'status': 'error', 
+                            'message': video_validation.get('reason', 'Invalid video file')
+                        }), 400
                     
-                    # Ensure static/thumbnails directory exists
-                    static_thumbnails_dir = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails')
-                    os.makedirs(static_thumbnails_dir, exist_ok=True)
-                    
-                    # Path for static thumbnail
-                    static_thumbnail_path = os.path.join(static_thumbnails_dir, thumbnail_filename)
-                    
-                    # Generate thumbnail
-                    if FFMPEG_AVAILABLE:
-                        try:
-                            # Generate thumbnail using FFmpeg
-                            thumbnail_result = generate_thumbnail(
-                                video_path=file_path, 
-                                output_path=thumbnail_path, 
-                                size=(320, 240)
-                            )
-                            
-                            # Copy thumbnail to static folder
-                            if thumbnail_result and os.path.exists(thumbnail_path):
-                                shutil.copy2(thumbnail_path, static_thumbnail_path)
-                                logging.info(f"Thumbnail generated and copied: {static_thumbnail_path}")
-                            else:
-                                logging.warning("Thumbnail generation failed")
-                                thumbnail_filename = None
-                        except Exception as thumbnail_error:
-                            logging.error(f"Thumbnail generation error: {thumbnail_error}")
-                            thumbnail_filename = None
-                    else:
-                        logging.warning("FFmpeg not available. Skipping thumbnail generation.")
-                        thumbnail_filename = None
-
                     # Prepare movie metadata
+                    title = request.form.get('title', filename)
+                    language = request.form.get('language', 'English')
+                    
+                    # Generate thumbnail
+                    thumbnail_filename = None
+                    thumbnail_path = None
+                    
+                    try:
+                        # Ensure thumbnail directories exist
+                        static_thumbnails_dir = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails')
+                        os.makedirs(thumbnail_folder, exist_ok=True)
+                        os.makedirs(static_thumbnails_dir, exist_ok=True)
+                        
+                        # Generate unique thumbnail filename
+                        thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb_{uuid.uuid4().hex[:8]}.jpg"
+                        thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
+                        static_thumbnail_path = os.path.join(static_thumbnails_dir, thumbnail_filename)
+                        
+                        # Attempt thumbnail generation
+                        if FFMPEG_AVAILABLE:
+                            try:
+                                # FFmpeg thumbnail generation
+                                ffmpeg_cmd = [
+                                    'ffmpeg', 
+                                    '-i', file_path,  # Input video
+                                    '-vf', 'thumbnail,scale=320:240',  # Select thumbnail and resize
+                                    '-frames:v', '1',  # Only one frame
+                                    thumbnail_path
+                                ]
+                                
+                                # Run FFmpeg command with error capture
+                                result = subprocess.run(
+                                    ffmpeg_cmd, 
+                                    capture_output=True, 
+                                    text=True, 
+                                    check=True
+                                )
+                                
+                                # Verify thumbnail was created
+                                if os.path.exists(thumbnail_path):
+                                    # Copy to static folder
+                                    shutil.copy2(thumbnail_path, static_thumbnail_path)
+                                    logging.info(f"Thumbnail generated: {thumbnail_filename}")
+                                else:
+                                    logging.error("Thumbnail file not created by FFmpeg")
+                                    thumbnail_filename = None
+                            
+                            except subprocess.CalledProcessError as ffmpeg_error:
+                                logging.error(f"FFmpeg thumbnail error: {ffmpeg_error}")
+                                logging.error(f"FFmpeg STDERR: {ffmpeg_error.stderr}")
+                                thumbnail_filename = None
+                        else:
+                            logging.warning("FFmpeg not available. Skipping thumbnail generation.")
+                            thumbnail_filename = None
+                    
+                    except Exception as thumb_error:
+                        logging.critical(f"Critical thumbnail generation error: {thumb_error}")
+                        logging.critical(traceback.format_exc())
+                        thumbnail_filename = None
+                    
+                    # Create movie record
                     new_movie = Movie(
-                        title=request.form.get('title', filename),
-                        filename=filename,
-                        thumbnail=thumbnail_filename,
-                        language=request.form.get('language', 'Unknown'),
+                        title=title, 
+                        filename=filename, 
+                        thumbnail=thumbnail_filename, 
+                        language=language, 
                         user_id=current_user.id
                     )
                     
-                    # Database transaction
-                    try:
-                        # Add and commit in a single transaction
-                        db.session.add(new_movie)
-                        db.session.commit()
-                        logging.info("Movie record saved to database successfully")
-                        
-                        # Prepare success response
-                        success_message = 'Video uploaded successfully!'
-                        
-                        if is_ajax:
-                            return jsonify({
-                                'status': 'success', 
-                                'message': success_message,
-                                'redirect': url_for('index')
-                            }), 200
-                        else:
-                            flash(success_message, 'success')
-                            return redirect(url_for('index'))
-
-                    except Exception as db_error:
-                        # Rollback transaction on error
-                        db.session.rollback()
-                        logging.error(f"Database save error: {db_error}")
-                        logging.error(traceback.format_exc())
-                        
-                        # Remove uploaded files on database error
-                        if os.path.exists(file_path):
-                            os.remove(file_path)
-                        if thumbnail_filename and os.path.exists(thumbnail_path):
-                            os.remove(thumbnail_path)
-                        
-                        error_message = 'Failed to save movie to database.'
-                        
-                        if is_ajax:
-                            return jsonify({
-                                'status': 'error', 
-                                'message': error_message
-                            }), 500
-                        else:
-                            flash(error_message, 'danger')
-                            return redirect(request.url)
-
-                except Exception as upload_error:
-                    # Comprehensive error logging
-                    logging.error(f"Upload process error: {upload_error}")
-                    logging.error(traceback.format_exc())
+                    # Add and commit to database
+                    db.session.add(new_movie)
+                    db.session.commit()
                     
-                    # Remove any partially uploaded files
-                    if 'file_path' in locals() and os.path.exists(file_path):
-                        os.remove(file_path)
-                    if 'thumbnail_path' in locals() and os.path.exists(thumbnail_path):
-                        os.remove(thumbnail_path)
+                    logging.info(f"Movie uploaded successfully: {filename}")
                     
-                    error_message = f'Upload failed: {str(upload_error)}'
-                    
-                    if is_ajax:
-                        return jsonify({
-                            'status': 'error', 
-                            'message': error_message
-                        }), 500
-                    else:
-                        flash(error_message, 'danger')
-                        return redirect(request.url)
-
-            else:
-                logging.warning(f"Invalid file type: {file.filename}")
-                error_message = 'Invalid file type. Please upload a valid video.'
+                    # Return success response
+                    return jsonify({
+                        'status': 'success', 
+                        'message': 'Movie uploaded successfully!',
+                        'movie_id': new_movie.id
+                    }), 201
                 
-                if is_ajax:
+                except Exception as upload_error:
+                    # Rollback database transaction
+                    db.session.rollback()
+                    
+                    # Remove uploaded file if it exists
+                    if os.path.exists(file_path):
+                        os.unlink(file_path)
+                    
+                    logging.critical(f"Unexpected upload error: {upload_error}")
+                    logging.critical(traceback.format_exc())
+                    
                     return jsonify({
                         'status': 'error', 
-                        'message': error_message
-                    }), 400
-                else:
-                    flash(error_message, 'danger')
-                    return redirect(request.url)
-
-        except Exception as global_error:
-            # Global error handling
-            logging.critical(f"Critical error in upload route: {global_error}")
-            logging.critical(traceback.format_exc())
+                        'message': 'An unexpected error occurred during upload. Please try again.'
+                    }), 500
             
-            error_message = f'An unexpected error occurred: {str(global_error)}'
-            
-            if is_ajax:
+            else:
+                # Invalid file type
+                logging.error(f"Invalid file type: {file.filename}")
                 return jsonify({
                     'status': 'error', 
-                    'message': error_message
-                }), 500
-            else:
-                flash(error_message, 'danger')
-                return redirect(url_for('index'))
-
-    # Render upload page for GET request
-    return render_template('upload.html', languages=LANGUAGES)
+                    'message': 'Invalid file type. Please upload a valid video file.'
+                }), 400
+        
+        except Exception as final_error:
+            logging.critical(f"Final upload route error: {final_error}")
+            logging.critical(traceback.format_exc())
+            
+            return jsonify({
+                'status': 'error', 
+                'message': 'A critical error occurred. Please contact support.'
+            }), 500
 
 @app.route('/debug_auth')
 def debug_auth():

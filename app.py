@@ -54,16 +54,33 @@ def configure_database():
         # Detailed logging for database configuration
         logging.info("Initializing database configuration")
         
-        # Get database URL from environment or default
+        # Construct database URL from environment variables if not already set
         database_url = os.getenv('DATABASE_URL')
+        
+        # Fallback database URL construction
+        if not database_url:
+            # Check for individual database configuration variables
+            db_host = os.getenv('AIVEN_DB_HOST')
+            db_port = os.getenv('AIVEN_DB_PORT')
+            db_name = os.getenv('AIVEN_DB_NAME', 'defaultdb')
+            db_user = os.getenv('AIVEN_DB_USER')
+            db_password = os.getenv('AIVEN_DB_PASSWORD')
+            
+            if db_host and db_port and db_user and db_password:
+                database_url = (
+                    f"postgresql://{db_user}:{db_password}@"
+                    f"{db_host}:{db_port}/{db_name}?sslmode=require"
+                )
+            else:
+                # Absolute fallback to SQLite
+                logging.warning("No database configuration found. Using SQLite.")
+                instance_path = os.path.join(app.root_path, 'instance')
+                os.makedirs(instance_path, exist_ok=True)
+                database_url = f'sqlite:///{os.path.join(instance_path, "app.db")}'
         
         # Validate database URL
         if not database_url:
-            logging.warning("No DATABASE_URL found. Falling back to SQLite.")
-            # Create a path for SQLite database in the app's instance folder
-            instance_path = os.path.join(app.root_path, 'instance')
-            os.makedirs(instance_path, exist_ok=True)
-            database_url = f'sqlite:///{os.path.join(instance_path, "app.db")}'
+            raise ValueError("Unable to determine database URL")
         
         # Configure SQLAlchemy
         app.config['SQLALCHEMY_DATABASE_URI'] = database_url
@@ -107,8 +124,9 @@ try:
 except Exception as config_error:
     logging.critical(f"Fatal database configuration error: {config_error}")
     logging.critical(traceback.format_exc())
-    # In a real-world scenario, you might want to have a fallback or emergency shutdown
-    raise
+    # Fallback to SQLite if all else fails
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///fallback.db'
+    logging.warning("Falling back to SQLite database")
 
 # Configure additional app settings
 app.config['SQLALCHEMY_ECHO'] = False  # Disable SQL logging in production

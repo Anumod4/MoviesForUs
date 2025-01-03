@@ -1016,41 +1016,118 @@ def logout():
 @app.route('/edit_movie/<int:movie_id>', methods=['GET', 'POST'])
 @login_required
 def edit_movie(movie_id):
-    movie = Movie.query.get_or_404(movie_id)
-    
-    # Ensure only the uploader can edit
-    if movie.user_id != current_user.id:
-        flash('You are not authorized to edit this movie.', 'danger')
-        return redirect(url_for('index'))
-    
-    if request.method == 'POST':
-        # Update movie details
-        movie.title = request.form.get('title')
-        movie.language = request.form.get('language')
+    """
+    Edit movie details with comprehensive error handling and logging
+    """
+    try:
+        # Find the movie or return 404
+        movie = Movie.query.get_or_404(movie_id)
         
-        # Handle new thumbnail upload
-        new_thumbnail = request.files.get('thumbnail')
-        if new_thumbnail and new_thumbnail.filename:
-            # Delete old thumbnail if exists
-            if movie.thumbnail:
-                old_thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail)
-                if os.path.exists(old_thumbnail_path):
-                    os.remove(old_thumbnail_path)
+        # Logging for debugging
+        logging.info(f"Edit Movie Route Accessed")
+        logging.info(f"Movie ID: {movie_id}")
+        logging.info(f"Current User ID: {current_user.id}")
+        logging.info(f"Movie Owner ID: {movie.user_id}")
+        
+        # Ensure only the uploader can edit
+        if movie.user_id != current_user.id:
+            logging.warning(f"Unauthorized edit attempt by user {current_user.id} for movie {movie_id}")
+            flash('You are not authorized to edit this movie.', 'danger')
+            return redirect(url_for('index'))
+        
+        if request.method == 'POST':
+            # Validate input
+            title = request.form.get('title', '').strip()
+            language = request.form.get('language', '').strip()
             
-            # Save new thumbnail
-            original_thumb_filename = secure_filename(new_thumbnail.filename)
-            unique_thumb_filename = f"{uuid.uuid4()}_{original_thumb_filename}"
-            thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], unique_thumb_filename)
-            new_thumbnail.save(thumbnail_path)
-            movie.thumbnail = unique_thumb_filename
+            # Input validation
+            if not title:
+                logging.warning("Edit movie: Empty title")
+                flash('Movie title cannot be empty.', 'danger')
+                return render_template('edit_movie.html', 
+                                       movie=movie, 
+                                       languages=LANGUAGES)
+            
+            if not language or language not in LANGUAGES:
+                logging.warning(f"Invalid language: {language}")
+                flash('Please select a valid language.', 'danger')
+                return render_template('edit_movie.html', 
+                                       movie=movie, 
+                                       languages=LANGUAGES)
+            
+            # Update movie details
+            movie.title = title
+            movie.language = language
+            
+            # Handle new thumbnail upload
+            new_thumbnail = request.files.get('thumbnail')
+            if new_thumbnail and new_thumbnail.filename:
+                try:
+                    # Delete old thumbnail if exists
+                    if movie.thumbnail:
+                        old_thumbnail_paths = [
+                            os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail),
+                            os.path.join(os.path.dirname(__file__), 'static', 'thumbnails', movie.thumbnail)
+                        ]
+                        for old_path in old_thumbnail_paths:
+                            if os.path.exists(old_path):
+                                try:
+                                    os.remove(old_path)
+                                    logging.info(f"Deleted old thumbnail: {old_path}")
+                                except Exception as delete_error:
+                                    logging.error(f"Could not delete old thumbnail {old_path}: {delete_error}")
+                    
+                    # Save new thumbnail
+                    original_thumb_filename = secure_filename(new_thumbnail.filename)
+                    unique_thumb_filename = f"{uuid.uuid4()}_{original_thumb_filename}"
+                    
+                    # Save to thumbnail folder
+                    thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], unique_thumb_filename)
+                    new_thumbnail.save(thumbnail_path)
+                    
+                    # Copy to static thumbnails folder
+                    static_thumbnails_dir = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails')
+                    os.makedirs(static_thumbnails_dir, exist_ok=True)
+                    static_thumbnail_path = os.path.join(static_thumbnails_dir, unique_thumb_filename)
+                    shutil.copy2(thumbnail_path, static_thumbnail_path)
+                    
+                    movie.thumbnail = unique_thumb_filename
+                    logging.info(f"New thumbnail saved: {unique_thumb_filename}")
+                
+                except Exception as thumbnail_error:
+                    logging.error(f"Thumbnail upload error: {thumbnail_error}")
+                    flash('Error uploading thumbnail. Please try again.', 'danger')
+                    return render_template('edit_movie.html', 
+                                           movie=movie, 
+                                           languages=LANGUAGES)
+            
+            try:
+                # Commit changes
+                db.session.commit()
+                logging.info(f"Movie {movie_id} updated successfully")
+                flash('Movie details updated successfully!', 'success')
+                return redirect(url_for('index'))
+            
+            except Exception as db_error:
+                # Rollback in case of database error
+                db.session.rollback()
+                logging.error(f"Database error during movie update: {db_error}")
+                flash('An error occurred while updating the movie. Please try again.', 'danger')
+                return render_template('edit_movie.html', 
+                                       movie=movie, 
+                                       languages=LANGUAGES)
         
-        db.session.commit()
-        flash('Movie details updated successfully!', 'success')
-        return redirect(url_for('index'))
+        # GET request: render edit page
+        return render_template('edit_movie.html', 
+                               movie=movie, 
+                               languages=LANGUAGES)
     
-    return render_template('edit_movie.html', 
-                           movie=movie, 
-                           languages=LANGUAGES)
+    except Exception as unexpected_error:
+        # Catch any unexpected errors
+        logging.critical(f"Unexpected error in edit_movie: {unexpected_error}")
+        logging.critical(traceback.format_exc())
+        flash('An unexpected error occurred. Please try again.', 'danger')
+        return redirect(url_for('index'))
 
 @app.route('/delete_movie/<int:movie_id>', methods=['POST'])
 @login_required

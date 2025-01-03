@@ -42,21 +42,24 @@
                 <div class="movie-card">
                     <div class="movie-thumbnail">
                         {% if movie.thumbnail %}
-                        <a href="{{ url_for('play_movie', movie_id=movie.id) }}">
+                        <a href="{{ url_for('play_movie', movie_id=movie.id) }}" class="thumbnail-link">
                             <img src="{{ url_for('static', filename='thumbnails/' + movie.thumbnail) }}" 
-                                 alt="{{ movie.title }} Thumbnail">
+                                 alt="{{ movie.title }} Thumbnail"
+                                 onerror="this.onerror=null; this.src='{{ url_for('static', filename='default_thumbnail.jpg') }}';">
+                            <div class="play-overlay">
+                                <i class="fas fa-play-circle"></i>
+                            </div>
                         </a>
                         {% else %}
                         <div class="no-thumbnail">
-                            <a href="{{ url_for('play_movie', movie_id=movie.id) }}">
+                            <a href="{{ url_for('play_movie', movie_id=movie.id) }}" class="thumbnail-link">
                                 <i class="fas fa-film"></i>
+                                <div class="play-overlay">
+                                    <i class="fas fa-play-circle"></i>
+                                </div>
                             </a>
                         </div>
                         {% endif %}
-                        <div class="movie-overlay">
-                            <a href="{{ url_for('play_movie', movie_id=movie.id) }}" class="play-btn">
-                            </a>
-                        </div>
                     </div>
                     <div class="movie-details">
                         <div class="movie-info">
@@ -363,6 +366,38 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
+}
+
+.thumbnail-link {
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding-top: 56.25%;
+    position: relative;
+}
+
+.thumbnail-link img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.play-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 2rem;
+    color: white;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.thumbnail-link:hover .play-overlay {
+    opacity: 1;
 }
 </style>
 {% endblock %}

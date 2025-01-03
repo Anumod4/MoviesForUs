@@ -17,15 +17,13 @@ python-magic==0.4.27
 opencv-python-headless==4.7.0.72
 
 # Debugging and Validation
-python-ffprobe==0.3.3
 
 # Note: Requires system-level dependencies
 # macOS: 
 #   brew install ffmpeg
 #   brew install libmagic
-#   brew install ffprobe
 # Ubuntu/Debian: 
-#   sudo apt-get install ffmpeg libmagic-dev ffprobe
+#   sudo apt-get install ffmpeg libmagic-dev
 # Windows: 
 #   Download FFmpeg from https://ffmpeg.org/download.html
 #   Install python-magic-bin

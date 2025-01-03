@@ -478,22 +478,26 @@ def validate_video_file(file_path):
         if not mime_type:
             mime_type = mimetypes.guess_type(file_path)[0]
         
-        # Method 3: FFprobe detection
+        # Method 3: System FFprobe detection
         if not mime_type:
             try:
+                # Use subprocess to run ffprobe
                 ffprobe_output = subprocess.check_output([
                     'ffprobe', 
                     '-v', 'error', 
                     '-select_streams', 'v:0', 
-                    '-show_entries', 'stream=codec_type', 
-                    '-of', 'default=noprint_wrappers=1:nokey=1', 
+                    '-count_packets',
+                    '-show_entries', 
+                    'stream=codec_type,width,height,duration,nb_read_packets', 
+                    '-of', 'csv=p=0', 
                     file_path
-                ], universal_newlines=True).strip()
+                ], universal_newlines=True, stderr=subprocess.STDOUT).strip()
                 
-                if ffprobe_output == 'video':
+                # If output is not empty, it's a valid video
+                if ffprobe_output:
                     mime_type = 'video/unknown'
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                logging.warning("FFprobe detection failed.")
+            except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                logging.warning(f"FFprobe detection failed: {e}")
         
         # Supported video MIME types
         supported_mime_types = [
@@ -512,15 +516,37 @@ def validate_video_file(file_path):
         # Optional: Basic video metadata extraction
         metadata = {}
         try:
-            import cv2
-            cap = cv2.VideoCapture(file_path)
-            metadata = {
-                'width': int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                'height': int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-                'fps': cap.get(cv2.CAP_PROP_FPS),
-                'total_frames': int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            }
-            cap.release()
+            # Use FFprobe for more reliable metadata
+            ffprobe_cmd = [
+                'ffprobe', 
+                '-v', 'quiet', 
+                '-print_format', 'json', 
+                '-show_format', 
+                '-show_streams', 
+                file_path
+            ]
+            
+            ffprobe_result = subprocess.check_output(
+                ffprobe_cmd, 
+                universal_newlines=True, 
+                stderr=subprocess.STDOUT
+            )
+            
+            # Parse FFprobe JSON output
+            ffprobe_data = json.loads(ffprobe_result)
+            video_stream = next(
+                (stream for stream in ffprobe_data.get('streams', []) 
+                 if stream.get('codec_type') == 'video'), 
+                None
+            )
+            
+            if video_stream:
+                metadata = {
+                    'width': int(video_stream.get('width', 0)),
+                    'height': int(video_stream.get('height', 0)),
+                    'fps': float(eval(video_stream.get('avg_frame_rate', '0/1'))),
+                    'duration': float(ffprobe_data.get('format', {}).get('duration', 0))
+                }
         except Exception as metadata_error:
             logging.warning(f"Could not extract video metadata: {metadata_error}")
         

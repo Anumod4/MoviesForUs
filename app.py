@@ -1093,47 +1093,43 @@ def edit_movie(movie_id):
             movie.title = title
             movie.language = language
             
-            # Handle new thumbnail upload
-            new_thumbnail = request.files.get('thumbnail')
-            if new_thumbnail and new_thumbnail.filename:
-                try:
-                    # Delete old thumbnail if exists
-                    if movie.thumbnail:
-                        old_thumbnail_paths = [
-                            os.path.join(app.config['THUMBNAIL_FOLDER'], movie.thumbnail),
-                            os.path.join(os.path.dirname(__file__), 'static', 'thumbnails', movie.thumbnail)
-                        ]
-                        for old_path in old_thumbnail_paths:
-                            if os.path.exists(old_path):
-                                try:
-                                    os.remove(old_path)
-                                    logging.info(f"Deleted old thumbnail: {old_path}")
-                                except Exception as delete_error:
-                                    logging.error(f"Could not delete old thumbnail {old_path}: {delete_error}")
+            # Thumbnail upload handling
+            try:
+                # Check if a thumbnail file is uploaded
+                if 'thumbnail' in request.files:
+                    thumbnail_file = request.files['thumbnail']
                     
-                    # Save new thumbnail
-                    original_thumb_filename = secure_filename(new_thumbnail.filename)
-                    unique_thumb_filename = f"{uuid.uuid4()}_{original_thumb_filename}"
-                    
-                    # Save to thumbnail folder
-                    thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], unique_thumb_filename)
-                    new_thumbnail.save(thumbnail_path)
-                    
-                    # Copy to static thumbnails folder
-                    static_thumbnails_dir = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails')
-                    os.makedirs(static_thumbnails_dir, exist_ok=True)
-                    static_thumbnail_path = os.path.join(static_thumbnails_dir, unique_thumb_filename)
-                    shutil.copy2(thumbnail_path, static_thumbnail_path)
-                    
-                    movie.thumbnail = unique_thumb_filename
-                    logging.info(f"New thumbnail saved: {static_thumbnail_path}")
-                
-                except Exception as thumbnail_error:
-                    logging.error(f"Thumbnail upload error: {thumbnail_error}")
-                    flash('Error uploading thumbnail. Please try again.', 'danger')
-                    return render_template('edit_movie.html', 
-                                           movie=movie, 
-                                           languages=LANGUAGES)
+                    # Generate a unique filename for the uploaded thumbnail
+                    if thumbnail_file and thumbnail_file.filename:
+                        # Secure the filename
+                        original_filename = secure_filename(thumbnail_file.filename)
+                        base_filename, ext = os.path.splitext(original_filename)
+                        
+                        # Create unique filename
+                        unique_id = str(uuid.uuid4())[:8]
+                        unique_thumb_filename = f"{base_filename}_{unique_id}{ext}"
+                        
+                        # Ensure thumbnails directory exists
+                        static_thumbnail_dir = os.path.join(app.root_path, 'static', 'thumbnails')
+                        os.makedirs(static_thumbnail_dir, exist_ok=True)
+                        
+                        # Full path for saving
+                        static_thumbnail_path = os.path.join(static_thumbnail_dir, unique_thumb_filename)
+                        
+                        # Save the uploaded thumbnail
+                        thumbnail_file.save(static_thumbnail_path)
+                        
+                        # Verify file was saved
+                        if os.path.exists(static_thumbnail_path):
+                            # Update movie record with new thumbnail
+                            movie.thumbnail = unique_thumb_filename
+                            logging.info(f"New thumbnail saved: {static_thumbnail_path}")
+                        else:
+                            logging.error(f"Failed to save uploaded thumbnail: {static_thumbnail_path}")
+            
+            except Exception as thumbnail_error:
+                logging.error(f"Thumbnail upload error: {thumbnail_error}")
+                logging.error(traceback.format_exc())
             
             try:
                 # Commit changes

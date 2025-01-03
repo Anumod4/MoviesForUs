@@ -1064,12 +1064,12 @@ def upload():
         # Handle POST request
         if request.method == 'POST':
             # Comprehensive file validation
-            if 'file' not in request.files:
-                logging.error("No file part in the request")
+            if 'movie' not in request.files:
+                logging.error("No movie file part in the request")
                 flash('No file part', 'danger')
                 return redirect(request.url)
 
-            file = request.files['file']
+            file = request.files['movie']
 
             # Check filename
             if file.filename == '':

@@ -1488,22 +1488,24 @@ def upload():
                             'message': 'Movie uploaded successfully!',
                             'movie_id': new_movie.id
                         }), 201
-                
-                except Exception as upload_error:
-                    # Rollback database transaction
-                    db.session.rollback()
                     
-                    # Remove uploaded file if it exists
-                    if os.path.exists(file_path):
-                        os.unlink(file_path)
-                    
-                    logging.critical(f"Unexpected upload error: {upload_error}")
-                    logging.critical(traceback.format_exc())
-                    
-                    return jsonify({
-                        'status': 'error', 
-                        'message': 'An unexpected error occurred during upload. Please try again.'
-                    }), 500
+                    except Exception as upload_error:
+                        # Rollback database transaction
+                        db.session.rollback()
+                        
+                        # Remove uploaded file if it exists
+                        if os.path.exists(file_path):
+                            os.unlink(file_path)
+                        
+                        # Log the full error
+                        logging.critical(f"Upload error: {upload_error}")
+                        logging.critical(traceback.format_exc())
+                        
+                        # Return error response
+                        return jsonify({
+                            'status': 'error', 
+                            'message': 'An unexpected error occurred during upload. Please try again.'
+                        }), 500
             
             else:
                 # Invalid file type

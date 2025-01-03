@@ -158,7 +158,11 @@ from flask_bcrypt import Bcrypt  # Add Bcrypt import
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # Media Processing
-import ffmpeg
+try:
+    import ffmpeg
+except ImportError:
+    logging.warning("ffmpeg module not installed. Some video conversion features may be limited.")
+    ffmpeg = None
 import cv2
 import magic  # MIME type detection
 

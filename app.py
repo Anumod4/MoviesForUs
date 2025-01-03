@@ -337,48 +337,90 @@ def generate_thumbnail(video_path, output_path, size=(320, 240)):
         str: Thumbnail filename or None if generation fails
     """
     try:
-        import cv2
-        import numpy as np
+        # Prefer FFmpeg for thumbnail generation
+        if shutil.which('ffmpeg'):
+            try:
+                # Generate thumbnail using FFmpeg
+                thumbnail_filename = f"thumb_{uuid.uuid4().hex[:8]}.jpg"
+                thumbnail_full_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
+                
+                # Ensure thumbnail directory exists
+                os.makedirs(os.path.dirname(thumbnail_full_path), exist_ok=True)
+                
+                # FFmpeg command to generate thumbnail
+                ffmpeg_cmd = [
+                    'ffmpeg', 
+                    '-i', video_path,  # Input video
+                    '-vf', f'thumbnail,scale={size[0]}:{size[1]}',  # Select thumbnail and resize
+                    '-frames:v', '1',  # Only one frame
+                    thumbnail_full_path
+                ]
+                
+                # Run FFmpeg command
+                subprocess.run(ffmpeg_cmd, check=True, capture_output=True)
+                
+                # Copy to static folder
+                static_thumbnails_dir = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails')
+                os.makedirs(static_thumbnails_dir, exist_ok=True)
+                static_thumbnail_path = os.path.join(static_thumbnails_dir, thumbnail_filename)
+                shutil.copy2(thumbnail_full_path, static_thumbnail_path)
+                
+                logging.info(f"FFmpeg Thumbnail generated: {thumbnail_filename}")
+                return thumbnail_filename
+            
+            except subprocess.CalledProcessError as ffmpeg_error:
+                logging.error(f"FFmpeg thumbnail generation failed: {ffmpeg_error}")
+                logging.error(ffmpeg_error.stderr.decode('utf-8') if ffmpeg_error.stderr else "No error details")
         
-        # Validate input file
-        if not os.path.exists(video_path):
-            logging.error(f"Video file not found: {video_path}")
+        # Fallback to OpenCV if FFmpeg fails
+        try:
+            import cv2
+            import numpy as np
+            
+            # Open video capture
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                logging.error(f"Could not open video file: {video_path}")
+                return None
+            
+            # Read first frame
+            ret, frame = cap.read()
+            cap.release()
+            
+            if not ret:
+                logging.error(f"Could not read first frame from: {video_path}")
+                return None
+            
+            # Resize frame
+            resized_frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
+            
+            # Generate unique filename
+            thumbnail_filename = f"thumb_{uuid.uuid4().hex[:8]}.jpg"
+            thumbnail_full_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
+            
+            # Ensure thumbnail directory exists
+            os.makedirs(os.path.dirname(thumbnail_full_path), exist_ok=True)
+            
+            # Save thumbnail
+            cv2.imwrite(thumbnail_full_path, resized_frame)
+            
+            # Copy to static folder
+            static_thumbnails_dir = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails')
+            os.makedirs(static_thumbnails_dir, exist_ok=True)
+            static_thumbnail_path = os.path.join(static_thumbnails_dir, thumbnail_filename)
+            shutil.copy2(thumbnail_full_path, static_thumbnail_path)
+            
+            logging.info(f"OpenCV Thumbnail generated: {thumbnail_filename}")
+            return thumbnail_filename
+        
+        except ImportError:
+            logging.warning("OpenCV not installed. Skipping thumbnail generation.")
             return None
-        
-        # Open video capture
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            logging.error(f"Could not open video file: {video_path}")
+        except Exception as e:
+            logging.error(f"Unexpected error generating thumbnail: {e}")
             return None
-        
-        # Read first frame
-        ret, frame = cap.read()
-        cap.release()
-        
-        if not ret:
-            logging.error(f"Could not read first frame from: {video_path}")
-            return None
-        
-        # Resize frame
-        resized_frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
-        
-        # Generate unique filename
-        thumbnail_filename = f"thumb_{uuid.uuid4().hex[:8]}.jpg"
-        thumbnail_full_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
-        
-        # Ensure thumbnail directory exists
-        os.makedirs(os.path.dirname(thumbnail_full_path), exist_ok=True)
-        
-        # Save thumbnail
-        cv2.imwrite(thumbnail_full_path, resized_frame)
-        
-        return thumbnail_filename
-    
-    except ImportError:
-        logging.warning("OpenCV not installed. Skipping thumbnail generation.")
-        return None
-    except Exception as e:
-        logging.error(f"Unexpected error generating thumbnail: {e}")
+    except Exception as final_error:
+        logging.critical(f"Critical thumbnail generation error: {final_error}")
         return None
 
 def check_ffmpeg_availability():
@@ -718,12 +760,18 @@ def allowed_file(filename):
 @app.route('/stream/<filename>')
 def stream(filename):
     """
-    Enhanced video streaming with support for large files and range requests
+    Enhanced video streaming with comprehensive error handling
     """
     try:
         # Secure filename and construct full path
         safe_filename = secure_filename(filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
+        
+        # Validate file existence
+        if not os.path.exists(file_path):
+            logging.error(f"File not found: {file_path}")
+            flash('Video file not found.', 'danger')
+            return redirect(url_for('index'))
         
         # Validate video file
         video_validation = validate_video_file(file_path)
@@ -746,6 +794,12 @@ def stream(filename):
                 logging.error(f"Video conversion failed: {conv_error}")
                 flash('Could not convert video format.', 'danger')
                 return redirect(url_for('index'))
+        
+        # Ensure file is readable
+        if not os.access(converted_path, os.R_OK):
+            logging.error(f"File not readable: {converted_path}")
+            flash('Unable to read video file.', 'danger')
+            return redirect(url_for('index'))
         
         # Get file size and handle range requests
         file_size = os.path.getsize(converted_path)

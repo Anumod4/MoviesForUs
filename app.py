@@ -1039,212 +1039,34 @@ def upload():
     """
     Enhanced video upload route with comprehensive error handling and logging
     """
-    # Detailed logging for upload route
+    # Diagnostic logging for upload route access
     logging.info("=" * 50)
     logging.info("Upload Route Accessed")
     logging.info(f"Request Method: {request.method}")
     logging.info(f"Current User: {current_user.is_authenticated}")
+    logging.info(f"Current User ID: {current_user.id}")
+    logging.info(f"Current Username: {current_user.username}")
     
-    # Log all request details with maximum verbosity
-    logging.info("Complete Request Details:")
-    logging.info(f"Request Headers: {dict(request.headers)}")
-    logging.info(f"Request Content Type: {request.content_type}")
-    logging.info(f"Request Content Length: {request.content_length}")
+    # Render upload template with languages
+    return render_template('upload.html', languages=LANGUAGES)
+
+@app.route('/debug_auth')
+def debug_auth():
+    """
+    Diagnostic route to check authentication and session details
+    """
+    logging.info("=" * 50)
+    logging.info("Authentication Debug Route")
     
-    logging.info("Request Form Data:")
-    for key, value in request.form.items():
-        logging.info(f"  {key}: {value}")
-    
-    logging.info("Request Files:")
-    for key, file in request.files.items():
-        logging.info(f"  {key}: {file.filename}")
-        logging.info(f"  {key} Content Type: {file.content_type}")
-        logging.info(f"  {key} Headers: {file.headers}")
-
-    # Check for file sources
-    file_sources = list(request.files.keys())
-    logging.info(f"File Sources: {file_sources}")
-
-    # Comprehensive file validation with explicit error handling
-    if not current_user.is_authenticated:
-        logging.warning("Unauthorized upload attempt")
-        error_message = "Please log in to upload videos."
-        
-        # Differentiate between AJAX and traditional requests
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            # AJAX request
-            return jsonify({
-                'status': 'error', 
-                'message': error_message
-            }), 401
-        else:
-            # Traditional form submission
-            flash(error_message, 'danger')
-            return redirect(url_for('login'))
-
-    # Comprehensive file validation
-    if 'movie' not in request.files:
-        logging.error("No movie file part in the request")
-        logging.error(f"Available file sources: {list(request.files.keys())}")
-        
-        # Provide a more detailed error response
-        error_message = "No movie file uploaded. Please select a file to upload."
-        
-        # Differentiate between AJAX and traditional requests
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({
-                'status': 'error', 
-                'message': error_message
-            }), 400
-        else:
-            flash(error_message, 'danger')
-            return redirect(request.url)
-
-    try:
-        # Check if user is logged in
-        if not current_user.is_authenticated:
-            logging.warning("Unauthorized upload attempt")
-            flash('Please log in to upload videos.', 'danger')
-            return redirect(url_for('login'))
-
-        # Handle POST request
-        if request.method == 'POST':
-            # Comprehensive file validation
-            if 'movie' not in request.files:
-                logging.error("No movie file part in the request")
-                flash('No file part', 'danger')
-                return redirect(request.url)
-
-            file = request.files['movie']
-
-            # Check filename
-            if file.filename == '':
-                logging.error("No selected file")
-                flash('No selected file', 'danger')
-                return redirect(request.url)
-
-            # Detailed file logging
-            logging.info(f"Uploaded File Details:")
-            logging.info(f"  Filename: {file.filename}")
-            logging.info(f"  Content Type: {file.content_type}")
-            
-            # Validate file
-            if file and allowed_file(file.filename):
-                try:
-                    # Secure filename
-                    filename = secure_filename(file.filename)
-                    
-                    # Ensure upload folder exists
-                    upload_folder = app.config['UPLOAD_FOLDER']
-                    thumbnail_folder = app.config['THUMBNAIL_FOLDER']
-                    
-                    os.makedirs(upload_folder, exist_ok=True)
-                    os.makedirs(thumbnail_folder, exist_ok=True)
-                    
-                    # Full file paths
-                    file_path = os.path.join(upload_folder, filename)
-                    
-                    # Log file save details
-                    logging.info(f"Saving file to: {file_path}")
-                    logging.info(f"Upload Folder: {upload_folder}")
-                    logging.info(f"Thumbnail Folder: {thumbnail_folder}")
-                    
-                    # Save the file
-                    file.save(file_path)
-                    logging.info(f"File saved successfully: {file_path}")
-                    
-                    # Validate video file
-                    video_validation = validate_video_file(file_path)
-                    
-                    if not video_validation['valid']:
-                        # Remove invalid file
-                        os.remove(file_path)
-                        logging.error(f"Video validation failed: {video_validation}")
-                        flash(f"Video processing error: {video_validation.get('reason', 'Unknown error')}", 'danger')
-                        return redirect(request.url)
-
-                    # Generate thumbnail
-                    thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb.jpg"
-                    thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
-                    
-                    # Log thumbnail generation
-                    logging.info(f"Generating thumbnail: {thumbnail_path}")
-                    generate_thumbnail(file_path, thumbnail_path)
-                    logging.info(f"Thumbnail generated: {thumbnail_path}")
-
-                    # Prepare movie metadata
-                    new_movie = Movie(
-                        title=request.form.get('title', filename),
-                        filename=filename,
-                        thumbnail=thumbnail_filename,
-                        language=request.form.get('language', 'Unknown'),
-                        user_id=current_user.id
-                    )
-                    
-                    # Log movie details before saving
-                    logging.info("Movie Details for Database:")
-                    logging.info(f"  Title: {new_movie.title}")
-                    logging.info(f"  Filename: {new_movie.filename}")
-                    logging.info(f"  Thumbnail: {new_movie.thumbnail}")
-                    logging.info(f"  Language: {new_movie.language}")
-                    logging.info(f"  User ID: {new_movie.user_id}")
-                    
-                    # Database transaction
-                    try:
-                        # Add and commit in a single transaction
-                        db.session.add(new_movie)
-                        db.session.commit()
-                        logging.info("Movie record saved to database successfully")
-                    except Exception as db_error:
-                        # Rollback transaction on error
-                        db.session.rollback()
-                        logging.error(f"Database save error: {db_error}")
-                        logging.error(traceback.format_exc())
-                        
-                        # Remove uploaded files on database error
-                        if os.path.exists(file_path):
-                            os.remove(file_path)
-                        if os.path.exists(thumbnail_path):
-                            os.remove(thumbnail_path)
-                        
-                        flash('Failed to save movie to database.', 'danger')
-                        return redirect(request.url)
-
-                    logging.info(f"Movie uploaded successfully: {filename}")
-                    flash('Video uploaded successfully!', 'success')
-                    return redirect(url_for('index'))
-
-                except Exception as upload_error:
-                    # Comprehensive error logging
-                    logging.error(f"Upload process error: {upload_error}")
-                    logging.error(traceback.format_exc())
-                    
-                    # Remove any partially uploaded files
-                    if 'file_path' in locals() and os.path.exists(file_path):
-                        os.remove(file_path)
-                    if 'thumbnail_path' in locals() and os.path.exists(thumbnail_path):
-                        os.remove(thumbnail_path)
-                    
-                    flash(f'Upload failed: {str(upload_error)}', 'danger')
-                    return redirect(request.url)
-
-            else:
-                logging.warning(f"Invalid file type: {file.filename}")
-                flash('Invalid file type. Please upload a valid video.', 'danger')
-                return redirect(request.url)
-
-        # Render upload page for GET request
-        logging.info("Rendering upload template")
-        logging.info("=" * 50)
-        return render_template('upload.html', languages=LANGUAGES)
-
-    except Exception as global_error:
-        # Global error handling
-        logging.critical(f"Critical error in upload route: {global_error}")
-        logging.critical(traceback.format_exc())
-        
-        flash('An unexpected error occurred. Please try again.', 'danger')
-        return redirect(url_for('index'))
+    # Check current user details
+    if current_user.is_authenticated:
+        logging.info(f"Authenticated User Details:")
+        logging.info(f"  User ID: {current_user.id}")
+        logging.info(f"  Username: {current_user.username}")
+        return f"Authenticated as {current_user.username}"
+    else:
+        logging.warning("No authenticated user")
+        return "Not authenticated", 401
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))

@@ -1,27 +1,40 @@
-# Core Dependencies
+# Core Web Framework
 flask==2.3.2
 flask-sqlalchemy==3.0.3
-flask-login==0.6.3
-psycopg2-binary==2.9.6
-Pillow==9.5.0
+flask-login==0.6.2
+flask-bcrypt==1.0.1
+
+# Database Drivers
+psycopg2-binary==2.9.6  # PostgreSQL driver
+SQLAlchemy==2.0.15
+
+# Environment and Configuration
+python-dotenv==2.0.0
+python-jose==3.3.0
+
+# Security
+werkzeug==2.3.4
+cryptography==41.0.1
+
+# Logging and Debugging
+blinker==1.6.2
+
+# Deployment and Production
 gunicorn==20.1.0
-aiven-client==2.16.0
-flask-caching==2.1.0
+gevent==22.10.2
 
-# Environment Variables
-python-dotenv==1.0.0
-
-# Numerical and Scientific Computing
-numpy==1.24.3
-
-# Video Processing Dependencies
+# Video and Multimedia Processing
 ffmpeg-python==0.2.0
 python-ffmpeg==1.0.14
 python-magic==0.4.27
 opencv-python-headless==4.7.0.72
 
-# Security and Authentication
-flask-bcrypt==1.0.1
+# Numerical and Scientific Computing
+numpy==1.24.3
+
+# Additional Utilities
+requests==2.31.0
+Pillow==9.5.0
 
 # Note: Requires system-level FFmpeg
 # macOS: 

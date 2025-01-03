@@ -12,11 +12,11 @@ import subprocess
 import secrets
 import sys
 import traceback
-import inspect  # Add inspect module import
-import uuid  # Add uuid import
+import inspect
+import uuid
+import shutil
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode
-import shutil
 
 # Additional imports for video validation
 import os
@@ -282,7 +282,7 @@ app.config['CACHE_TYPE'] = 'FileSystemCache'
 
 # Security and Authentication
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from flask_bcrypt import Bcrypt  # Add Bcrypt import
+from flask_bcrypt import Bcrypt
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # Media Processing
@@ -292,7 +292,7 @@ except ImportError:
     logging.warning("ffmpeg module not installed. Some video conversion features may be limited.")
     ffmpeg = None
 import cv2
-import magic  # MIME type detection
+import magic
 
 # Function to check FFmpeg availability
 def check_ffmpeg_availability():
@@ -375,7 +375,7 @@ def generate_thumbnail(file_path):
         file_path (str): Path to the video file
     
     Returns:
-        str or None: Thumbnail filename or None if generation fails
+        str or None: Absolute path to the thumbnail or None if generation fails
     """
     # Validate and normalize input path
     file_path = os.path.abspath(file_path)
@@ -392,7 +392,7 @@ def generate_thumbnail(file_path):
     thumbnail_filename = f"{base_filename}_thumb_{unique_id}.jpg"
     
     # Ensure thumbnail directory exists
-    thumbnail_dir = app.config.get('THUMBNAIL_FOLDER', os.path.join(app.root_path, 'static', 'thumbnails'))
+    thumbnail_dir = os.path.join(tempfile.gettempdir(), 'movie_thumbnails')
     os.makedirs(thumbnail_dir, mode=0o755, exist_ok=True)
     
     thumbnail_path = os.path.join(thumbnail_dir, thumbnail_filename)
@@ -426,7 +426,7 @@ def generate_thumbnail(file_path):
                 thumb_size = os.path.getsize(thumbnail_path)
                 if thumb_size > 0:
                     logging.info(f"FFmpeg thumbnail generated: {thumbnail_path}")
-                    return thumbnail_filename
+                    return thumbnail_path
                 else:
                     logging.error("Generated thumbnail is empty")
             else:
@@ -464,7 +464,7 @@ def generate_thumbnail(file_path):
                 thumb_size = os.path.getsize(thumbnail_path)
                 if thumb_size > 0:
                     logging.info(f"OpenCV thumbnail generated: {thumbnail_path}")
-                    return thumbnail_filename
+                    return thumbnail_path
                 else:
                     logging.error("OpenCV generated empty thumbnail")
             else:
@@ -1126,7 +1126,7 @@ def edit_movie(movie_id):
                     shutil.copy2(thumbnail_path, static_thumbnail_path)
                     
                     movie.thumbnail = unique_thumb_filename
-                    logging.info(f"New thumbnail saved: {unique_thumb_filename}")
+                    logging.info(f"New thumbnail saved: {static_thumbnail_path}")
                 
                 except Exception as thumbnail_error:
                     logging.error(f"Thumbnail upload error: {thumbnail_error}")
@@ -1380,13 +1380,30 @@ def upload():
                         
                         # Ensure thumbnail is saved in the correct directory
                         if thumbnail_path:
+                            # Ensure full path for thumbnail
+                            if not os.path.isabs(thumbnail_path):
+                                thumbnail_path = os.path.join(os.getcwd(), thumbnail_path)
+                            
                             # Move thumbnail to the static/thumbnails directory
                             thumbnail_filename = os.path.basename(thumbnail_path)
                             static_thumbnail_dir = os.path.join(app.root_path, 'static', 'thumbnails')
                             os.makedirs(static_thumbnail_dir, exist_ok=True)
                             
                             static_thumbnail_path = os.path.join(static_thumbnail_dir, thumbnail_filename)
-                            shutil.move(thumbnail_path, static_thumbnail_path)
+                            
+                            # Copy instead of move to prevent potential file loss
+                            if os.path.exists(thumbnail_path):
+                                shutil.copy2(thumbnail_path, static_thumbnail_path)
+                                
+                                # Optional: remove the original if it's in a temporary location
+                                if '/tmp/' in thumbnail_path or '/temp/' in thumbnail_path:
+                                    try:
+                                        os.remove(thumbnail_path)
+                                    except Exception as remove_error:
+                                        logging.warning(f"Could not remove temporary thumbnail: {remove_error}")
+                            else:
+                                logging.error(f"Thumbnail file not found: {thumbnail_path}")
+                                thumbnail_filename = None
                             
                             # Use only the filename for database storage
                             thumbnail_filename = os.path.basename(static_thumbnail_path)

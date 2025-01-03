@@ -12,6 +12,7 @@ import subprocess
 import secrets
 import sys
 import traceback
+import inspect  # Add inspect module import
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode
 
@@ -89,74 +90,91 @@ configure_logging()
 
 # Database Configuration with Enhanced Error Handling
 def configure_database():
+    """
+    Comprehensive database configuration with robust error handling
+    
+    Returns:
+        str: Configured database URL
+    
+    Raises:
+        Exception: Detailed database configuration errors
+    """
     try:
-        # Validate database configuration
-        db_config_keys = [
-            'AIVEN_DB_HOST', 
-            'AIVEN_DB_PORT', 
-            'AIVEN_DB_NAME', 
-            'AIVEN_DB_USER', 
-            'AIVEN_DB_PASSWORD'
-        ]
+        # Detailed logging for database configuration
+        logging.info("Initializing database configuration")
         
-        # Log configuration details safely
-        def safe_log_config():
-            config_log = {}
-            for key in db_config_keys:
-                value = os.getenv(key)
-                config_log[key] = '*' * len(value) if value else 'Not Set'
-            return config_log
+        # Get database URL from environment or default
+        database_url = os.getenv('DATABASE_URL')
         
-        # Check if all required keys are present
-        missing_keys = [key for key in db_config_keys if not os.getenv(key)]
-        if missing_keys:
-            print(f"Missing database configuration keys: {missing_keys}")
-            return 'sqlite:///movies.db'
+        # Validate database URL
+        if not database_url:
+            logging.warning("No DATABASE_URL found. Falling back to SQLite.")
+            # Create a path for SQLite database in the app's instance folder
+            instance_path = os.path.join(app.root_path, 'instance')
+            os.makedirs(instance_path, exist_ok=True)
+            database_url = f'sqlite:///{os.path.join(instance_path, "app.db")}'
         
-        # Construct Database URL with SSL support
-        database_url = (
-            f"postgresql://{os.getenv('AIVEN_DB_USER')}:"
-            f"{os.getenv('AIVEN_DB_PASSWORD')}@"
-            f"{os.getenv('AIVEN_DB_HOST')}:"
-            f"{os.getenv('AIVEN_DB_PORT')}/"
-            f"{os.getenv('AIVEN_DB_NAME')}?sslmode=require"
-        )
+        # Configure SQLAlchemy
+        app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+        app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
         
-        # Additional connection validation
+        # Log detailed database configuration
+        logging.info(f"Database URL configured: {database_url}")
+        
+        # Additional database connection validation
         try:
-            # Test database connection using SQLAlchemy
-            from sqlalchemy import create_engine, text
-            engine = create_engine(database_url, echo=False)
-            
-            # Attempt to establish a connection and execute a simple query
-            with engine.connect() as connection:
-                result = connection.execute(text("SELECT 1"))
-                result.fetchone()  # Explicitly fetch the result
-            
-            print("Database connection successful")
+            # Test database connection
+            with app.app_context():
+                db.engine.connect()
+                logging.info("Database connection successful")
         except Exception as conn_error:
-            print(f"Database connection test failed: {conn_error}")
-            return 'sqlite:///movies.db'
+            logging.error(f"Database connection test failed: {conn_error}")
+            logging.error(traceback.format_exc())
+            raise RuntimeError(f"Unable to connect to database: {conn_error}")
         
         return database_url
     
     except Exception as e:
-        print(f"Error configuring database: {e}")
-        return 'sqlite:///movies.db'
+        # Comprehensive error logging
+        logging.critical("Critical error during database configuration")
+        logging.critical(f"Error details: {str(e)}")
+        logging.critical(f"Error type: {type(e).__name__}")
+        logging.critical(f"Error location: {inspect.currentframe().f_code.co_filename}:{inspect.currentframe().f_lineno}")
+        logging.critical(traceback.format_exc())
+        
+        # Raise a more informative error
+        raise RuntimeError(f"Database configuration failed: {str(e)}")
 
-# Set Database URL
+# Global error handler for database initialization
+@app.errorhandler(RuntimeError)
+def handle_runtime_error(e):
+    """
+    Handle runtime errors, particularly database initialization errors
+    
+    Args:
+        e (Exception): The runtime error
+    
+    Returns:
+        tuple: Error response and status code
+    """
+    logging.critical(f"Runtime Error: {str(e)}")
+    logging.critical(traceback.format_exc())
+    
+    # Render a user-friendly error page
+    return render_template('error.html', 
+                           error_message="A critical system error occurred. Please contact support.",
+                           error_code=500), 500
+
+# Ensure database URL is set before app initialization
 try:
     DATABASE_URL = configure_database()
 except Exception as config_error:
-    print(f"Fatal error in database configuration: {config_error}")
-    DATABASE_URL = 'sqlite:///movies.db'
-
-# Logging configuration details
-print(f"Final Database URL: {DATABASE_URL}")
+    logging.critical(f"Fatal database configuration error: {config_error}")
+    logging.critical(traceback.format_exc())
+    # In a real-world scenario, you might want to have a fallback or emergency shutdown
+    raise
 
 # Configure SQLAlchemy
-app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ECHO'] = False  # Disable SQL logging in production
 
 # Increase upload limits

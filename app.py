@@ -381,52 +381,49 @@ def generate_thumbnail(video_path, output_path, size=(320, 240)):
                 logging.error(ffmpeg_error.stderr.decode('utf-8') if ffmpeg_error.stderr else "No error details")
         
         # Fallback to OpenCV if FFmpeg fails
-        try:
-            import cv2
-            import numpy as np
+        if thumbnail_filename is None:
+            try:
+                logging.info("Attempting OpenCV thumbnail generation...")
+                import cv2
+                
+                # Verify file path exists and is valid
+                if not os.path.exists(file_path):
+                    logging.error(f"File path does not exist: {file_path}")
+                    raise FileNotFoundError(f"Video file not found: {file_path}")
+                
+                # Open video capture
+                cap = cv2.VideoCapture(file_path)
+                
+                if not cap.isOpened():
+                    logging.error("OpenCV failed to open video file")
+                    raise Exception("Failed to open video file")
+                
+                # Seek to 1 second
+                cap.set(cv2.CAP_PROP_POS_MSEC, 1000)
+                ret, frame = cap.read()
+                cap.release()
+                
+                if ret:
+                    frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
+                    cv2.imwrite(output_path, frame)
+                    
+                    if os.path.exists(output_path):
+                        thumb_size = os.path.getsize(output_path)
+                        logging.info(f"OpenCV thumbnail generated. Size: {thumb_size} bytes")
+                    else:
+                        logging.error("OpenCV failed to save thumbnail")
+                        thumbnail_filename = None
+                else:
+                    logging.error("OpenCV failed to read video frame")
+                    thumbnail_filename = None
             
-            # Open video capture
-            cap = cv2.VideoCapture(file_path)  # Use saved file path
-            if not cap.isOpened():
-                logging.error(f"Could not open video file: {file_path}")
-                return None
-            
-            # Read first frame
-            ret, frame = cap.read()
-            cap.release()
-            
-            if not ret:
-                logging.error(f"Could not read first frame from: {file_path}")
-                return None
-            
-            # Resize frame
-            resized_frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
-            
-            # Generate unique filename
-            thumbnail_filename = f"thumb_{uuid.uuid4().hex[:8]}.jpg"
-            thumbnail_full_path = os.path.join(app.config['THUMBNAIL_FOLDER'], thumbnail_filename)
-            
-            # Ensure thumbnail directory exists
-            os.makedirs(os.path.dirname(thumbnail_full_path), exist_ok=True)
-            
-            # Save thumbnail
-            cv2.imwrite(thumbnail_full_path, resized_frame)
-            
-            # Copy to static folder
-            static_thumbnails_dir = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails')
-            os.makedirs(static_thumbnails_dir, exist_ok=True)
-            static_thumbnail_path = os.path.join(static_thumbnails_dir, thumbnail_filename)
-            shutil.copy2(thumbnail_full_path, static_thumbnail_path)
-            
-            logging.info(f"OpenCV Thumbnail generated: {thumbnail_filename}")
-            return thumbnail_filename
+            except Exception as cv_error:
+                logging.error(f"OpenCV error: {cv_error}")
+                logging.error(traceback.format_exc())
+                thumbnail_filename = None
         
-        except ImportError:
-            logging.warning("OpenCV not installed. Skipping thumbnail generation.")
-            return None
-        except Exception as e:
-            logging.error(f"Unexpected error generating thumbnail: {e}")
-            return None
+        return thumbnail_filename
+    
     except Exception as final_error:
         logging.critical(f"Critical thumbnail generation error: {final_error}")
         return None
@@ -1436,7 +1433,14 @@ def upload():
                         try:
                             logging.info("Attempting OpenCV thumbnail generation...")
                             import cv2
-                            cap = cv2.VideoCapture(file_path)  # Use saved file path
+                            
+                            # Verify file path exists and is valid
+                            if not os.path.exists(file_path):
+                                logging.error(f"File path does not exist: {file_path}")
+                                raise FileNotFoundError(f"Video file not found: {file_path}")
+                            
+                            # Open video capture
+                            cap = cv2.VideoCapture(file_path)
                             
                             if not cap.isOpened():
                                 logging.error("OpenCV failed to open video file")

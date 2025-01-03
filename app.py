@@ -1033,14 +1033,24 @@ def index():
 @login_required
 def upload():
     """
-    Enhanced video upload route with comprehensive error handling
+    Enhanced video upload route with comprehensive error handling and logging
     """
-    try:
-        # Logging entry point
-        logging.info(f"Upload route accessed. Method: {request.method}")
-        logging.info(f"Request files: {request.files}")
-        logging.info(f"Request form data: {request.form}")
+    # Detailed logging for upload route
+    logging.info("=" * 50)
+    logging.info("Upload Route Accessed")
+    logging.info(f"Request Method: {request.method}")
+    logging.info(f"Current User: {current_user.id} ({current_user.username})")
+    
+    # Log request details
+    logging.info("Request Form Data:")
+    for key, value in request.form.items():
+        logging.info(f"  {key}: {value}")
+    
+    logging.info("Request Files:")
+    for key, file in request.files.items():
+        logging.info(f"  {key}: {file.filename}")
 
+    try:
         # Check if user is logged in
         if not current_user.is_authenticated:
             logging.warning("Unauthorized upload attempt")
@@ -1049,10 +1059,7 @@ def upload():
 
         # Handle POST request
         if request.method == 'POST':
-            # Log detailed request information
-            logging.info("Processing upload POST request")
-
-            # Check if file is present in the request
+            # Comprehensive file validation
             if 'file' not in request.files:
                 logging.error("No file part in the request")
                 flash('No file part', 'danger')
@@ -1060,27 +1067,42 @@ def upload():
 
             file = request.files['file']
 
-            # Check if filename is empty
+            # Check filename
             if file.filename == '':
                 logging.error("No selected file")
                 flash('No selected file', 'danger')
                 return redirect(request.url)
 
-            # Additional logging for file details
-            logging.info(f"Uploaded file name: {file.filename}")
-            logging.info(f"Uploaded file content type: {file.content_type}")
-
+            # Detailed file logging
+            logging.info(f"Uploaded File Details:")
+            logging.info(f"  Filename: {file.filename}")
+            logging.info(f"  Content Type: {file.content_type}")
+            
             # Validate file
             if file and allowed_file(file.filename):
                 try:
                     # Secure filename
                     filename = secure_filename(file.filename)
-                    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
+                    
+                    # Ensure upload folder exists
+                    upload_folder = app.config['UPLOAD_FOLDER']
+                    thumbnail_folder = app.config['THUMBNAIL_FOLDER']
+                    
+                    os.makedirs(upload_folder, exist_ok=True)
+                    os.makedirs(thumbnail_folder, exist_ok=True)
+                    
+                    # Full file paths
+                    file_path = os.path.join(upload_folder, filename)
+                    
+                    # Log file save details
+                    logging.info(f"Saving file to: {file_path}")
+                    logging.info(f"Upload Folder: {upload_folder}")
+                    logging.info(f"Thumbnail Folder: {thumbnail_folder}")
+                    
                     # Save the file
                     file.save(file_path)
-                    logging.info(f"File saved to: {file_path}")
-
+                    logging.info(f"File saved successfully: {file_path}")
+                    
                     # Validate video file
                     video_validation = validate_video_file(file_path)
                     
@@ -1092,50 +1114,68 @@ def upload():
                         return redirect(request.url)
 
                     # Generate thumbnail
-                    thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], f"{os.path.splitext(filename)[0]}_thumb.jpg")
+                    thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb.jpg"
+                    thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
+                    
+                    # Log thumbnail generation
+                    logging.info(f"Generating thumbnail: {thumbnail_path}")
                     generate_thumbnail(file_path, thumbnail_path)
+                    logging.info(f"Thumbnail generated: {thumbnail_path}")
 
-                    # Save movie metadata to database
+                    # Prepare movie metadata
                     new_movie = Movie(
                         title=request.form.get('title', filename),
                         filename=filename,
-                        thumbnail=os.path.basename(thumbnail_path),
+                        thumbnail=thumbnail_filename,
                         language=request.form.get('language', 'Unknown'),
                         user_id=current_user.id
                     )
                     
-                    # Log movie details before committing
-                    logging.info(f"Preparing to save movie: {new_movie.title}")
-                    logging.info(f"Movie details - Filename: {new_movie.filename}, Thumbnail: {new_movie.thumbnail}, Language: {new_movie.language}")
+                    # Log movie details before saving
+                    logging.info("Movie Details for Database:")
+                    logging.info(f"  Title: {new_movie.title}")
+                    logging.info(f"  Filename: {new_movie.filename}")
+                    logging.info(f"  Thumbnail: {new_movie.thumbnail}")
+                    logging.info(f"  Language: {new_movie.language}")
+                    logging.info(f"  User ID: {new_movie.user_id}")
                     
-                    # Add and commit in a single transaction
-                    db.session.add(new_movie)
-                    db.session.commit()
-                    
-                    # Verify movie was saved
-                    saved_movie = Movie.query.filter_by(filename=filename).first()
-                    if saved_movie:
-                        logging.info(f"Movie saved successfully. Database ID: {saved_movie.id}")
-                    else:
-                        logging.warning("Movie not found in database after commit")
+                    # Database transaction
+                    try:
+                        # Add and commit in a single transaction
+                        db.session.add(new_movie)
+                        db.session.commit()
+                        logging.info("Movie record saved to database successfully")
+                    except Exception as db_error:
+                        # Rollback transaction on error
+                        db.session.rollback()
+                        logging.error(f"Database save error: {db_error}")
+                        logging.error(traceback.format_exc())
+                        
+                        # Remove uploaded files on database error
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                        if os.path.exists(thumbnail_path):
+                            os.remove(thumbnail_path)
+                        
+                        flash('Failed to save movie to database.', 'danger')
+                        return redirect(request.url)
 
                     logging.info(f"Movie uploaded successfully: {filename}")
                     flash('Video uploaded successfully!', 'success')
                     return redirect(url_for('index'))
 
-                except Exception as e:
+                except Exception as upload_error:
                     # Comprehensive error logging
-                    logging.error(f"Upload error: {str(e)}")
+                    logging.error(f"Upload process error: {upload_error}")
                     logging.error(traceback.format_exc())
                     
-                    # Rollback database session
-                    db.session.rollback()
-                    
                     # Remove any partially uploaded files
-                    if os.path.exists(file_path):
+                    if 'file_path' in locals() and os.path.exists(file_path):
                         os.remove(file_path)
+                    if 'thumbnail_path' in locals() and os.path.exists(thumbnail_path):
+                        os.remove(thumbnail_path)
                     
-                    flash(f'Upload failed: {str(e)}', 'danger')
+                    flash(f'Upload failed: {str(upload_error)}', 'danger')
                     return redirect(request.url)
 
             else:
@@ -1144,11 +1184,13 @@ def upload():
                 return redirect(request.url)
 
         # Render upload page for GET request
+        logging.info("Rendering upload template")
+        logging.info("=" * 50)
         return render_template('upload.html', languages=LANGUAGES)
 
-    except Exception as e:
+    except Exception as global_error:
         # Global error handling
-        logging.critical(f"Critical error in upload route: {str(e)}")
+        logging.critical(f"Critical error in upload route: {global_error}")
         logging.critical(traceback.format_exc())
         
         flash('An unexpected error occurred. Please try again.', 'danger')

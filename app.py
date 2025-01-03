@@ -1345,46 +1345,24 @@ def upload():
             is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
             
             # Validate file upload
-            if 'movie' not in request.files:
-                logging.error("No movie file part in the request")
-                error_message = "No movie file uploaded. Please select a file to upload."
-                
-                if is_ajax:
-                    return jsonify({
-                        'status': 'error', 
-                        'message': error_message
-                    }), 400
-                else:
-                    flash(error_message, 'danger')
-                    return redirect(request.url)
-
-            file = request.files['movie']
-
-            # Validate filename
+            if 'file' not in request.files:
+                return jsonify({
+                    'status': 'error', 
+                    'message': 'No file uploaded.'
+                }), 400
+            
+            file = request.files['file']
+            
+            # Check if filename is empty
             if file.filename == '':
-                logging.error("No selected file")
-                error_message = "No file selected. Please choose a movie to upload."
-                
-                if is_ajax:
-                    return jsonify({
-                        'status': 'error', 
-                        'message': error_message
-                    }), 400
-                else:
-                    flash(error_message, 'danger')
-                    return redirect(request.url)
-
-            # Validate file type and size
+                return jsonify({
+                    'status': 'error', 
+                    'message': 'No selected file.'
+                }), 400
+            
+            # Check file type
             if file and allowed_file(file.filename):
                 try:
-                    # Debug logging for paths
-                    logging.info("=" * 50)
-                    logging.info("Thumbnail Generation Debug")
-                    logging.info(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
-                    logging.info(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
-                    logging.info(f"Original Filename: {file.filename}")
-                    logging.info(f"File Path: {os.path.join(app.config['UPLOAD_FOLDER'], file.filename)}")
-                    
                     # Secure filename
                     filename = secure_filename(file.filename)
                     
@@ -1509,10 +1487,9 @@ def upload():
             
             else:
                 # Invalid file type
-                logging.error(f"Invalid file type: {file.filename}")
                 return jsonify({
                     'status': 'error', 
-                    'message': 'Invalid file type. Please upload a valid video file.'
+                    'message': 'Invalid file type. Please upload a video file.'
                 }), 400
         
         # Unexpected method

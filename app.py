@@ -1075,8 +1075,21 @@ def upload():
                         language=request.form.get('language', 'Unknown'),
                         user_id=current_user.id
                     )
+                    
+                    # Log movie details before committing
+                    logging.info(f"Preparing to save movie: {new_movie.title}")
+                    logging.info(f"Movie details - Filename: {new_movie.filename}, Thumbnail: {new_movie.thumbnail}, Language: {new_movie.language}")
+                    
+                    # Add and commit in a single transaction
                     db.session.add(new_movie)
                     db.session.commit()
+                    
+                    # Verify movie was saved
+                    saved_movie = Movie.query.filter_by(filename=filename).first()
+                    if saved_movie:
+                        logging.info(f"Movie saved successfully. Database ID: {saved_movie.id}")
+                    else:
+                        logging.warning("Movie not found in database after commit")
 
                     logging.info(f"Movie uploaded successfully: {filename}")
                     flash('Video uploaded successfully!', 'success')

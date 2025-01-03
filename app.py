@@ -22,71 +22,22 @@ from flask import (
     flash, send_file, Response, stream_with_context
 )
 from werkzeug.utils import secure_filename
-from werkzeug.exceptions import RequestEntityTooLarge
 
-# Security and Authentication
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from flask_bcrypt import Bcrypt  # Add Bcrypt import
-from werkzeug.security import generate_password_hash, check_password_hash
-
-# Database and ORM
-from flask_sqlalchemy import SQLAlchemy
-import psycopg2
-
-# Environment and Configuration
-from dotenv import load_dotenv
-
-# Media Processing
-import ffmpeg
-import cv2
-import magic  # MIME type detection
-
-# Load environment variables
-load_dotenv()
-
-# Initialize Flask extensions
+# Initialize Flask app first
 app = Flask(__name__)
 
-# Initialize Bcrypt
-bcrypt = Bcrypt(app)
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
 
 # Set secret key using environment variable or generate a secure random key
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', secrets.token_hex(32))
 
-# Ensure the secret key is set before initializing extensions
-if not app.config['SECRET_KEY']:
-    raise ValueError("No SECRET_KEY set for Flask application. Please set it in .env file.")
+# Database and ORM Imports
+from flask_sqlalchemy import SQLAlchemy
 
-# Logging Configuration
-def configure_logging():
-    """
-    Configure comprehensive logging for the application
-    Ensures detailed logs for debugging and monitoring
-    """
-    # Ensure logs directory exists
-    log_dir = os.path.join(app.root_path, 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-
-    # Configure logging
-    logging.basicConfig(
-        level=logging.DEBUG,  # Capture all levels of logs
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            # File handler for persistent logging
-            logging.FileHandler(os.path.join(log_dir, 'app.log'), encoding='utf-8'),
-            # Console handler for immediate visibility
-            logging.StreamHandler()
-        ]
-    )
-
-    # Set SQLAlchemy logging to warning to reduce verbosity
-    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
-
-    # Log application startup
-    logging.info("Application logging configured successfully")
-
-# Configure logging early in the application startup
-configure_logging()
+# Initialize SQLAlchemy after app configuration
+db = SQLAlchemy(app)
 
 # Database Configuration with Enhanced Error Handling
 def configure_database():
@@ -125,7 +76,12 @@ def configure_database():
         try:
             # Test database connection
             with app.app_context():
-                db.engine.connect()
+                # Explicitly create tables if they don't exist
+                db.create_all()
+                logging.info("Database tables created successfully")
+                
+                # Test connection by checking session
+                db.session.execute('SELECT 1')
                 logging.info("Database connection successful")
         except Exception as conn_error:
             logging.error(f"Database connection test failed: {conn_error}")
@@ -145,26 +101,6 @@ def configure_database():
         # Raise a more informative error
         raise RuntimeError(f"Database configuration failed: {str(e)}")
 
-# Global error handler for database initialization
-@app.errorhandler(RuntimeError)
-def handle_runtime_error(e):
-    """
-    Handle runtime errors, particularly database initialization errors
-    
-    Args:
-        e (Exception): The runtime error
-    
-    Returns:
-        tuple: Error response and status code
-    """
-    logging.critical(f"Runtime Error: {str(e)}")
-    logging.critical(traceback.format_exc())
-    
-    # Render a user-friendly error page
-    return render_template('error.html', 
-                           error_message="A critical system error occurred. Please contact support.",
-                           error_code=500), 500
-
 # Ensure database URL is set before app initialization
 try:
     DATABASE_URL = configure_database()
@@ -174,7 +110,7 @@ except Exception as config_error:
     # In a real-world scenario, you might want to have a fallback or emergency shutdown
     raise
 
-# Configure SQLAlchemy
+# Configure additional app settings
 app.config['SQLALCHEMY_ECHO'] = False  # Disable SQL logging in production
 
 # Increase upload limits
@@ -185,115 +121,53 @@ app.config['UPLOAD_CHUNK_SIZE'] = 1024 * 1024 * 10  # 10MB chunks
 app.config['STREAM_CHUNK_SIZE'] = 1024 * 1024 * 20  # 20MB chunks
 app.config['CACHE_TYPE'] = 'FileSystemCache'
 
-def configure_app_folders():
-    """
-    Robust configuration of upload and thumbnail folders
-    """
-    # Base directory for the application
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Define upload and thumbnail folders
-    upload_folder = os.getenv('UPLOAD_FOLDER', os.path.join(base_dir, 'static', 'uploads'))
-    thumbnail_folder = os.getenv('THUMBNAIL_FOLDER', os.path.join(base_dir, 'static', 'thumbnails'))
-    
-    # Ensure folders exist
-    os.makedirs(upload_folder, exist_ok=True)
-    os.makedirs(thumbnail_folder, exist_ok=True)
-    
-    return upload_folder, thumbnail_folder
+# Security and Authentication
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_bcrypt import Bcrypt  # Add Bcrypt import
+from werkzeug.security import generate_password_hash, check_password_hash
 
-# Configure upload and thumbnail folders
-UPLOAD_FOLDER, THUMBNAIL_FOLDER = configure_app_folders()
-
-# Ensure cache directory is created within upload folder
-CACHE_DIR = os.path.join(UPLOAD_FOLDER, '.video_cache')
-os.makedirs(CACHE_DIR, exist_ok=True)
-
-# Flask Configuration
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['THUMBNAIL_FOLDER'] = THUMBNAIL_FOLDER
-app.config['CACHE_DIR'] = CACHE_DIR
-
-# Logging configuration details
-print(f"Upload Folder: {app.config['UPLOAD_FOLDER']}")
-print(f"Thumbnail Folder: {app.config['THUMBNAIL_FOLDER']}")
-print(f"Cache Folder: {app.config['CACHE_DIR']}")
+# Media Processing
+import ffmpeg
+import cv2
+import magic  # MIME type detection
 
 # Initialize extensions
-db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# Safe database initialization function
-def safe_init_db():
-    try:
-        with app.app_context():
-            # Drop all existing tables first to ensure clean state
-            db.drop_all()
-            
-            # Create all tables
-            db.create_all()
-            
-            # Check if the tables exist
-            inspector = inspect(db.engine)
-            tables = inspector.get_table_names()
-            print("Existing tables:", tables)
-            
-            # Verify specific tables
-            required_tables = ['users', 'movies']
-            missing_tables = [table for table in required_tables if table not in tables]
-            
-            if missing_tables:
-                print(f"Warning: Missing tables {missing_tables}")
-                
-                # If using PostgreSQL, use raw SQL to create tables
-                if 'postgresql' in str(db.engine.url):
-                    from sqlalchemy import text
-                    with db.engine.connect() as connection:
-                        # Create Users table
-                        connection.execute(text("""
-                            CREATE TABLE IF NOT EXISTS users (
-                                id SERIAL PRIMARY KEY,
-                                username VARCHAR(80) UNIQUE NOT NULL,
-                                password_hash VARCHAR(255) NOT NULL
-                            )
-                        """))
-                        
-                        # Create Movies table
-                        connection.execute(text("""
-                            CREATE TABLE IF NOT EXISTS movies (
-                                id SERIAL PRIMARY KEY,
-                                title VARCHAR(100) NOT NULL,
-                                filename VARCHAR(200) NOT NULL,
-                                thumbnail VARCHAR(200),
-                                language VARCHAR(50) NOT NULL,
-                                user_id INTEGER NOT NULL REFERENCES users(id)
-                            )
-                        """))
-                        
-                        connection.commit()
-                        print("Tables created using raw SQL")
-            
-            # Commit the session to ensure changes are saved
-            db.session.commit()
-            
-            print("Database tables created successfully.")
-    except Exception as e:
-        print(f"Critical error initializing database: {e}")
-        traceback.print_exc()
+# Initialize Bcrypt
+bcrypt = Bcrypt(app)
 
-# Ensure database is initialized immediately
-safe_init_db()
+# Configure logging
+def configure_logging():
+    """
+    Configure comprehensive logging for the application
+    Ensures detailed logs for debugging and monitoring
+    """
+    # Ensure logs directory exists
+    log_dir = os.path.join(app.root_path, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
 
-# Import caching libraries
-from flask_caching import Cache
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,  # Capture all levels of logs
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            # File handler for persistent logging
+            logging.FileHandler(os.path.join(log_dir, 'app.log'), encoding='utf-8'),
+            # Console handler for immediate visibility
+            logging.StreamHandler()
+        ]
+    )
 
-# Initialize cache
-cache = Cache(app, config={
-    'CACHE_TYPE': 'filesystem',
-    'CACHE_DIR': app.config['CACHE_DIR'],
-    'CACHE_DEFAULT_TIMEOUT': 86400  # 24-hour cache
-})
+    # Set SQLAlchemy logging to warning to reduce verbosity
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+
+    # Log application startup
+    logging.info("Application logging configured successfully")
+
+# Configure logging early in the application startup
+configure_logging()
 
 # User Model with improved error handling
 class User(UserMixin, db.Model):

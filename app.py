@@ -19,7 +19,7 @@ from urllib.parse import urlparse, parse_qs, unquote, parse_qsl, urlencode
 # Flask and Web Framework Imports
 from flask import (
     Flask, request, render_template, redirect, url_for, 
-    flash, send_file, Response, stream_with_context
+    flash, send_file, Response, stream_with_context, jsonify
 )
 from werkzeug.utils import secure_filename
 
@@ -1066,8 +1066,19 @@ def upload():
     if 'movie' not in request.files:
         logging.error("No movie file part in the request")
         logging.error(f"Available file sources: {list(request.files.keys())}")
-        flash('No file part. Please select a movie to upload.', 'danger')
-        return redirect(request.url)
+        
+        # Provide a more detailed error response
+        error_message = "No movie file uploaded. Please select a file to upload."
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            # AJAX request
+            return jsonify({
+                'status': 'error', 
+                'message': error_message
+            }), 400
+        else:
+            # Traditional form submission
+            flash(error_message, 'danger')
+            return redirect(request.url)
 
     try:
         # Check if user is logged in

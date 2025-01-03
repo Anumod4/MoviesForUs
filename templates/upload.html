@@ -72,6 +72,19 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
         
         const formData = new FormData(uploadForm);
+
+        // Diagnostic logging
+        console.log('Form Data Contents:');
+        for (let [key, value] of formData.entries()) {
+            console.log(`${key}: `, value);
+        }
+
+        // Verify file input
+        if (movieFileInput.files.length === 0) {
+            alert('Please select a movie file to upload.');
+            return;
+        }
+
         const xhr = new XMLHttpRequest();
 
         // Show progress container
@@ -92,20 +105,29 @@ document.addEventListener('DOMContentLoaded', function() {
             uploadButton.disabled = false;
             uploadButton.innerHTML = '<i class="fas fa-upload me-2"></i>Upload Movie';
 
-            if (xhr.status === 200) {
+            console.log('Upload Response:', {
+                status: xhr.status,
+                responseText: xhr.responseText,
+                responseHeaders: xhr.getAllResponseHeaders()
+            });
+
+            if (xhr.status === 200 || xhr.status === 302) {
                 // Successful upload
-                uploadProgressBar.classList.remove('bg-success');
+                uploadProgressBar.classList.remove('bg-danger');
                 uploadProgressBar.classList.add('bg-success');
                 uploadProgressBar.style.width = '100%';
                 uploadProgressBar.textContent = '100%';
                 
-                // Optional: Redirect or show success message
+                // Redirect or show success message
                 window.location.href = "{{ url_for('index') }}";
             } else {
                 // Upload failed
                 uploadProgressBar.classList.remove('bg-success');
                 uploadProgressBar.classList.add('bg-danger');
                 uploadProgressBar.textContent = 'Upload Failed';
+                
+                // Display error details
+                alert(`Upload Failed: ${xhr.status} - ${xhr.responseText}`);
             }
         };
 
@@ -116,6 +138,11 @@ document.addEventListener('DOMContentLoaded', function() {
             uploadProgressBar.classList.remove('bg-success');
             uploadProgressBar.classList.add('bg-danger');
             uploadProgressBar.textContent = 'Network Error';
+
+            console.error('Upload Network Error', {
+                status: xhr.status,
+                responseText: xhr.responseText
+            });
         };
 
         xhr.open('POST', uploadForm.action, true);

@@ -1322,13 +1322,13 @@ def upload():
         # Handle different request methods
         if request.method == 'POST':
             # Check if file is present in the request
-            if 'file' not in request.files:
+            if 'movie' not in request.files:
                 return jsonify({
                     'status': 'error', 
                     'message': 'No file uploaded.'
                 }), 400
             
-            file = request.files['file']
+            file = request.files['movie']
             
             # Check if filename is empty
             if file.filename == '':

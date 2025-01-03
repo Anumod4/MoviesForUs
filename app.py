@@ -1489,6 +1489,46 @@ def debug_auth():
         logging.warning("No authenticated user")
         return "Not authenticated", 401
 
+@app.route('/thumbnails/<filename>')
+def serve_thumbnail(filename):
+    """
+    Serve thumbnails from the thumbnail folder
+    
+    Args:
+        filename (str): Name of the thumbnail file
+    
+    Returns:
+        Flask response with the thumbnail image
+    """
+    try:
+        # Validate filename to prevent directory traversal
+        filename = secure_filename(filename)
+        
+        # Full path to the thumbnail
+        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], filename)
+        
+        # Log thumbnail serving details
+        logging.info(f"Serving Thumbnail: {filename}")
+        logging.info(f"Thumbnail Path: {thumbnail_path}")
+        logging.info(f"Thumbnail Exists: {os.path.exists(thumbnail_path)}")
+        
+        # Check if thumbnail exists
+        if not os.path.exists(thumbnail_path):
+            # Log and return a default thumbnail
+            logging.warning(f"Thumbnail not found: {filename}")
+            return send_from_directory('static', 'default_thumbnail.jpg')
+        
+        # Serve the thumbnail
+        return send_file(thumbnail_path, mimetype='image/jpeg')
+    
+    except Exception as e:
+        # Comprehensive error logging
+        logging.error(f"Error serving thumbnail {filename}: {e}")
+        logging.error(traceback.format_exc())
+        
+        # Return default thumbnail on error
+        return send_from_directory('static', 'default_thumbnail.jpg'), 404
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)

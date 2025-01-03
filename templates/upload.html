@@ -128,23 +128,37 @@ document.addEventListener('DOMContentLoaded', function() {
             });
 
             try {
-                const response = xhr.status === 200 ? JSON.parse(xhr.responseText) : null;
+                // Parse response, handling different content types
+                let response;
+                try {
+                    response = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+                } catch (parseError) {
+                    console.error('Response parsing error:', parseError);
+                    response = null;
+                }
 
-                // Handle different response scenarios
-                if (xhr.status === 200 && response && response.status === 'success') {
+                // Comprehensive status handling
+                if (xhr.status >= 200 && xhr.status < 300) {
                     // Successful upload
                     uploadProgressBar.classList.remove('bg-danger');
                     uploadProgressBar.classList.add('bg-success');
                     uploadProgressBar.style.width = '100%';
                     uploadProgressBar.textContent = '100%';
                     
-                    // Show success message
-                    alert(response.message);
+                    // Determine success message
+                    const successMessage = response && response.message 
+                        ? response.message 
+                        : 'Upload successful!';
                     
-                    // Redirect to index page
-                    if (response.redirect) {
-                        window.location.href = response.redirect;
-                    }
+                    // Show success alert
+                    alert(successMessage);
+                    
+                    // Redirect handling with fallback
+                    const redirectUrl = response && response.redirect 
+                        ? response.redirect 
+                        : '/';
+                    
+                    window.location.href = redirectUrl;
                 } else {
                     // Upload failed
                     uploadProgressBar.classList.remove('bg-success');
@@ -157,17 +171,26 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     uploadProgressBar.textContent = 'Upload Failed';
                     alert(errorMessage);
+
+                    // Log detailed error information
+                    console.error('Upload Error Details:', {
+                        status: xhr.status,
+                        responseText: xhr.responseText,
+                        parsedResponse: response
+                    });
                 }
-            } catch (parseError) {
-                console.error('Error parsing response:', parseError);
+            } catch (globalError) {
+                console.error('Global error in upload processing:', globalError);
+                
                 uploadProgressBar.classList.remove('bg-success');
                 uploadProgressBar.classList.add('bg-danger');
                 uploadProgressBar.textContent = 'Unexpected Error';
-                alert(`Unexpected error: ${xhr.responseText}`);
+                
+                alert('An unexpected error occurred during upload. Please try again.');
             }
         };
 
-        xhr.onerror = function() {
+        xhr.onerror = function(error) {
             uploadButton.disabled = false;
             uploadButton.innerHTML = '<i class="fas fa-upload me-2"></i>Upload Movie';
             
@@ -175,13 +198,16 @@ document.addEventListener('DOMContentLoaded', function() {
             uploadProgressBar.classList.add('bg-danger');
             uploadProgressBar.textContent = 'Network Error';
 
+            // Detailed network error logging
             console.error('Upload Network Error', {
+                error: error,
                 status: xhr.status,
-                responseText: xhr.responseText
+                responseText: xhr.responseText,
+                readyState: xhr.readyState
             });
 
-            // More detailed error logging
-            alert('Upload failed. Please check your connection and try again. Additional details logged in console.');
+            // Comprehensive error message
+            alert('Upload failed due to a network error. Please check your internet connection, server status, and try again. Detailed error information has been logged to the console.');
         };
 
         xhr.open('POST', uploadForm.action, true);

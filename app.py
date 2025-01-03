@@ -1258,25 +1258,29 @@ def upload():
     """
     Enhanced video upload route with comprehensive error handling and logging
     """
-    # Diagnostic logging for upload route access
-    logging.info("=" * 50)
-    logging.info("Upload Route Accessed")
-    logging.info(f"Request Method: {request.method}")
-    logging.info(f"Current User: {current_user.is_authenticated}")
-    logging.info(f"Current User ID: {current_user.id}")
-    logging.info(f"Current Username: {current_user.username}")
-    
-    # Configure maximum file size (500 MB)
-    app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB limit
-    
-    # Detailed request logging
-    logging.info("Request Headers:")
-    for header, value in request.headers.items():
-        logging.info(f"  {header}: {value}")
-    
-    # Handle POST request for file upload
-    if request.method == 'POST':
-        try:
+    try:
+        # Diagnostic logging for upload route access
+        logging.info("=" * 50)
+        logging.info("Upload Route Accessed")
+        logging.info(f"Request Method: {request.method}")
+        logging.info(f"Current User: {current_user.is_authenticated}")
+        logging.info(f"Current User ID: {current_user.id}")
+        logging.info(f"Current Username: {current_user.username}")
+        
+        # Configure maximum file size (500 MB)
+        app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB limit
+        
+        # Detailed request logging
+        logging.info("Request Headers:")
+        for header, value in request.headers.items():
+            logging.info(f"  {header}: {value}")
+        
+        # Handle GET request
+        if request.method == 'GET':
+            return render_template('upload.html', languages=LANGUAGES)
+        
+        # Handle POST request for file upload
+        if request.method == 'POST':
             # Check if this is an AJAX request
             is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
             
@@ -1370,18 +1374,12 @@ def upload():
                     
                     # Generate thumbnail
                     thumbnail_filename = None
-                    thumbnail_path = None
                     
                     try:
-                        # Ensure thumbnail directories exist
-                        static_thumbnails_dir = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails')
-                        os.makedirs(thumbnail_folder, exist_ok=True)
-                        os.makedirs(static_thumbnails_dir, exist_ok=True)
-                        
                         # Generate unique thumbnail filename
                         thumbnail_filename = f"{os.path.splitext(filename)[0]}_thumb_{uuid.uuid4().hex[:8]}.jpg"
                         thumbnail_path = os.path.join(thumbnail_folder, thumbnail_filename)
-                        static_thumbnail_path = os.path.join(static_thumbnails_dir, thumbnail_filename)
+                        static_thumbnail_path = os.path.join(os.path.dirname(__file__), 'static', 'thumbnails', thumbnail_filename)
                         
                         # Attempt thumbnail generation
                         if FFMPEG_AVAILABLE:
@@ -1471,14 +1469,21 @@ def upload():
                     'message': 'Invalid file type. Please upload a valid video file.'
                 }), 400
         
-        except Exception as final_error:
-            logging.critical(f"Final upload route error: {final_error}")
-            logging.critical(traceback.format_exc())
-            
-            return jsonify({
-                'status': 'error', 
-                'message': 'A critical error occurred. Please contact support.'
-            }), 500
+        # Unexpected method
+        logging.warning(f"Unexpected request method: {request.method}")
+        return jsonify({
+            'status': 'error', 
+            'message': 'Invalid request method.'
+        }), 405
+    
+    except Exception as final_error:
+        logging.critical(f"Final upload route error: {final_error}")
+        logging.critical(traceback.format_exc())
+        
+        return jsonify({
+            'status': 'error', 
+            'message': 'A critical error occurred. Please contact support.'
+        }), 500
 
 @app.route('/debug_auth')
 def debug_auth():

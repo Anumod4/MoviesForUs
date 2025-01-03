@@ -70,6 +70,116 @@ def configure_logging():
 # Configure logging early
 configure_logging()
 
+# Robust Upload Folder Configuration
+import os
+import logging
+import traceback
+
+def configure_upload_folders(app):
+    """
+    Configure upload folders with comprehensive error handling and logging
+    
+    Args:
+        app (Flask): Flask application instance
+    
+    Returns:
+        tuple: Configured upload and thumbnail folders
+    """
+    # Potential base directories for uploads
+    potential_base_dirs = [
+        os.environ.get('RENDER_EXTERNAL_STORAGE', ''),  # Render.com external storage
+        '/opt/render/project/src/static/uploads',  # Render.com specific path
+        os.path.join(os.path.abspath(os.path.dirname(__file__)), 'static', 'uploads'),  # Project-specific uploads
+        os.path.join(os.getcwd(), 'static', 'uploads'),  # Current working directory
+        os.path.join(os.path.expanduser('~'), 'movie_uploads'),  # User home directory fallback
+        '/tmp/movie_uploads'  # Absolute last resort
+    ]
+    
+    # Logging for debugging
+    logging.info("Starting upload folder configuration")
+    logging.info("Checking potential upload directories:")
+    for potential_dir in potential_base_dirs:
+        logging.info(f"  - {potential_dir}")
+    
+    # Find the first valid directory
+    for base_dir in potential_base_dirs:
+        if not base_dir:
+            continue
+        
+        try:
+            # Create base upload directory
+            uploads_base = os.path.join(base_dir)
+            movies_upload_dir = os.path.join(uploads_base, 'movies')
+            thumbnails_upload_dir = os.path.join(uploads_base, 'thumbnails')
+            
+            # Ensure directories exist with proper permissions
+            os.makedirs(movies_upload_dir, exist_ok=True, mode=0o755)
+            os.makedirs(thumbnails_upload_dir, exist_ok=True, mode=0o755)
+            
+            # Verify directory creation and writability
+            if (os.path.exists(movies_upload_dir) and 
+                os.path.exists(thumbnails_upload_dir) and 
+                os.access(movies_upload_dir, os.W_OK) and 
+                os.access(thumbnails_upload_dir, os.W_OK)):
+                
+                logging.info(f"Using upload directory: {base_dir}")
+                logging.info(f"Movies Upload Directory: {movies_upload_dir}")
+                logging.info(f"Thumbnails Upload Directory: {thumbnails_upload_dir}")
+                
+                # Set app configuration
+                app.config['UPLOAD_FOLDER'] = movies_upload_dir
+                app.config['THUMBNAIL_FOLDER'] = thumbnails_upload_dir
+                
+                return movies_upload_dir, thumbnails_upload_dir
+        
+        except Exception as dir_error:
+            logging.warning(f"Error with directory {base_dir}: {dir_error}")
+            continue
+    
+    # Absolute last resort - use system temp directory
+    fallback_base = '/tmp/movie_uploads'
+    fallback_movies = os.path.join(fallback_base, 'movies')
+    fallback_thumbnails = os.path.join(fallback_base, 'thumbnails')
+    
+    try:
+        os.makedirs(fallback_movies, exist_ok=True, mode=0o755)
+        os.makedirs(fallback_thumbnails, exist_ok=True, mode=0o755)
+        
+        logging.critical("USING FALLBACK UPLOAD DIRECTORY IN /tmp")
+        logging.critical(f"Fallback Movies Directory: {fallback_movies}")
+        logging.critical(f"Fallback Thumbnails Directory: {fallback_thumbnails}")
+        
+        # Set app configuration to fallback
+        app.config['UPLOAD_FOLDER'] = fallback_movies
+        app.config['THUMBNAIL_FOLDER'] = fallback_thumbnails
+        
+        return fallback_movies, fallback_thumbnails
+    
+    except Exception as final_error:
+        logging.critical(f"CRITICAL: Cannot create ANY upload directory: {final_error}")
+        logging.critical(traceback.format_exc())
+        
+        # Absolute emergency fallback
+        emergency_upload = '/tmp/emergency_uploads'
+        os.makedirs(emergency_upload, exist_ok=True, mode=0o755)
+        
+        app.config['UPLOAD_FOLDER'] = emergency_upload
+        app.config['THUMBNAIL_FOLDER'] = emergency_upload
+        
+        return emergency_upload, emergency_upload
+
+# Ensure upload folders are configured immediately
+try:
+    # Configure upload folders as early as possible
+    configure_upload_folders(app)
+except Exception as config_error:
+    logging.critical(f"FATAL Upload Folder Configuration Error: {config_error}")
+    logging.critical(traceback.format_exc())
+
+# Verify configuration at startup
+logging.info(f"FINAL UPLOAD_FOLDER: {app.config.get('UPLOAD_FOLDER', 'NOT SET')}")
+logging.info(f"FINAL THUMBNAIL_FOLDER: {app.config.get('THUMBNAIL_FOLDER', 'NOT SET')}")
+
 # Database Configuration Function
 def get_database_uri():
     """
